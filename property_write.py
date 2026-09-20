@@ -432,6 +432,23 @@ async def test_single_property(
                 entry["out_of_service_restored"] = False
                 entry["out_of_service_restore_error"] = str(oos_rest_err)
 
+    # Step 6: Verify restoration via Readback
+    if restore and entry.get("restored"):
+        try:
+            raw_restored = await asyncio.wait_for(
+                app.read_property(target, obj_id, prop, array_index)
+                if array_index is not None
+                else app.read_property(target, obj_id, prop),
+                timeout=timeout,
+            )
+            restored_val = to_json(raw_restored)
+            entry["restored_value"] = restored_val
+            entry["restore_verified"] = values_match(restored_val, orig_val)
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except BaseException:
+            entry["restore_verified"] = False
+
     return entry
 
 
@@ -538,16 +555,28 @@ async def run_write_tests(args: argparse.Namespace) -> int:
                 orig = result.get("original_value")
                 test_v = result.get("test_value")
                 readback = result.get("actual_readback")
-                rest_str = ", restored" if result.get("restored") else (
-                    f", restore_failed: {result.get('restore_error')}" if result.get("restore_error") else ""
-                )
+                rest_ok = result.get("restored")
+                restored_v = result.get("restored_value")
+                rest_verified = result.get("restore_verified")
                 oos_str = " [via out-of-service=True]" if result.get("out_of_service_used") else ""
 
+                # Format restore status
+                if rest_ok:
+                    if restored_v is not None:
+                        ver_note = "" if rest_verified else " (mismatch)"
+                        rest_str = f" | restored: {restored_v}{ver_note}"
+                    else:
+                        rest_str = " | restored"
+                elif result.get("restore_error"):
+                    rest_str = f" | restore_failed: {result.get('restore_error')}"
+                else:
+                    rest_str = ""
+
                 if status == "WRITABLE":
-                    print(f"[{status}]  {label}{oos_str} (orig: {orig} -> test: {test_v}, readback: {readback}{rest_str})")
+                    print(f"[{status}]  {label}{oos_str} (orig: {orig} | test: {test_v} -> verified: {readback}{rest_str})")
                 elif status == "MISMATCH":
                     err_msg = result.get("error") or "Readback mismatch"
-                    print(f"[{status}]  {label}{oos_str} (orig: {orig} -> test: {test_v}, readback: {readback}{rest_str}) -> {err_msg}")
+                    print(f"[{status}]  {label}{oos_str} (orig: {orig} | test: {test_v} -> readback: {readback}{rest_str}) -> {err_msg}")
                 elif status == "READ_ONLY":
                     print(f"[{status}] {label} ({result.get('message', 'read-only')})")
                 elif status == "NOT_SUPPORTED":
@@ -557,7 +586,7 @@ async def run_write_tests(args: argparse.Namespace) -> int:
                     print(f"[{status}]   {label} -> would write: {test_v}")
                 else:
                     err_msg = result.get("error") or result.get("message") or ""
-                    detail = f" (orig: {orig} -> test: {test_v}{rest_str})" if test_v is not None else ""
+                    detail = f" (orig: {orig} | test: {test_v}{rest_str})" if test_v is not None else ""
                     print(f"[{status}]    {label}{detail} -> {err_msg}")
 
                 if args.delay > 0:

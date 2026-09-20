@@ -110,8 +110,13 @@ def render_html(data: dict[str, Any], report_type: str | None = None) -> str:
             act_val = format_val(r.get("actual_readback"))
 
             restored = r.get("restored")
+            restored_val = r.get("restored_value")
+            restore_verified = r.get("restore_verified")
             if restored is True:
-                restore_badge = '<span class="badge badge-success-outline" title="Original value restored">Restored</span>'
+                tip = f"Restored: {restored_val}" if restored_val is not None else "Original value restored"
+                if restore_verified is False:
+                    tip += " (readback mismatch)"
+                restore_badge = f'<span class="badge badge-success-outline" title="{html.escape(tip)}">Restored</span>'
             elif restored is False:
                 restore_badge = '<span class="badge badge-danger" title="Failed to restore original value">Restore Failed</span>'
             else:
