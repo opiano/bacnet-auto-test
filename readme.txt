@@ -25,6 +25,7 @@ python property_write.py --config config/property-read.yaml
 # 4. Wireshark 패킷 캡처와 함께 테스트 실행 (자동으로 .pcap 파일 생성)
 ./run_with_pcap.sh python property_read.py --first-per-type
 ./run_with_pcap.sh python property_write.py --first-per-type
+# Wireshark 분석 팁: 필터창에 'bacnet.text_message' 입력 시 오브젝트별 시작 마커 확인 가능
 
 # 생성된 pcap 파일을 윈도우 PC로 복사 (윈도우 PowerShell에서 실행):
 # scp pi@192.168.219.125:/home/pi/bacnet-auto-test/reports/*.pcap .

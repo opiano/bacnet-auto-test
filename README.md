@@ -17,13 +17,17 @@
      - `bo` (Binary Output): `alarm-value` 제외 (COMMAND_FAILURE 방식)
      - `trend_log`: `log-buffer` 제외 (ReadRange 전용 속성)
      - `event-message-texts` 제외
+   - **Wireshark 분석용 구분자 패킷**: 오브젝트 전환 시 `UnconfirmedTextMessage` 마커 패킷 자동 전송
 
 3. **속성 쓰기 및 원복 검증 (`property_write.py`)**
-   - 대상 속성에 테스트 값을 쓰고, Readback을 통해 실제 적용 여부 검증 후 원래 값으로 **자동 원복(Restore)**
-   - **Commandable 포인트 (AO, BO)**: Priority 8에 쓰기 후, 테스트 완료 시 `Null`로 우선순위 자동 해제(Relinquish)
+   - 대상 속성에 테스트 값을 쓰고, Readback을 통해 실제 적용 여부 검증 후 원래 값으로 **안전 원복(Restore)**
+   - **Commandable 포인트 (AO, BO, AV, BV, MSV, MSO)**: Priority 8로 쓰기 검증 후, 원복 시 `Null`로 우선순위 자동 해제(Relinquish) 및 Fallback 복원
+   - **복원 후 실제 값 재검증 (Post-Restore Readback)**: 복원 명령 전송 후 컨트롤러에서 실제로 원래 값으로 복귀했는지 추가 Readback 검증
    - **입력 포인트 (AI, BI) Present-Value 쓰기**: `write-access-denied` 발생 시 `out-of-service`를 `True`로 변경 후 쓰기 검증, 완료 후 다시 원래 상태(`False`)로 복구
    - **Multi-State `state-text` 배열 쓰기**: 컨트롤러의 `value-out-of-range` 방지를 위해 배열 1번 인덱스(`state-text[1]`)만 안전하게 쓰기/원복
    - **Binary Present-Value 토글**: `active` ↔ `inactive` 정확한 상태 반전 지원
+   - **정수형 포인트 (IV, PIV)**: 부동소수점(`.0`) 없이 순수 정수(Integer / Unsigned) 연산 및 쓰기 지원
+   - **Wireshark 분석용 구분자 패킷**: 오브젝트 전환 시 `UnconfirmedTextMessage` 마커 패킷 자동 전송
 
 4. **인터랙티브 HTML 리포트 생성 (`html_reporter.py`)**
    - 테스트 실행 시 JSON 리포트와 함께 브라우저에서 바로 볼 수 있는 단독 HTML 파일 자동 생성
@@ -148,8 +152,16 @@ python property_write.py --dry-run
   * **BI, BO, BV**: `active-text`, `inactive-text`, `time-delay`, `polarity`(BI/BO), `out-of-service`, `present-value`
   * **MSV, MSI, MSO**: `state-text[1]`, `time-delay`, `present-value`
 
-* **출력 결과**:
-  * 콘솔: `[WRITABLE]`, `[READ_ONLY]`, `[NOT_SUPPORTED]`, `[MISMATCH]` 등 상태 표시
+* **출력 결과 (콘솔)**:
+  ```text
+  # 정상 쓰기 및 복원 검증 성공
+  [WRITABLE]  binary-output,1 / present-value (orig: inactive | test: active -> verified: active | restored: inactive)
+  [WRITABLE]  analog-value,1 / present-value (orig: 21.5 | test: 22.5 -> verified: 22.5 | restored: 21.5)
+  [WRITABLE]  analog-input,1 / present-value [via out-of-service=True] (orig: 24.2 | test: 25.2 -> verified: 25.2 | restored: 24.2)
+
+  # 쓰기 미반영 오류 발생 시
+  [MISMATCH]  analog-value,2 / present-value (orig: 21.5 | test: 22.5 -> readback: 21.5 | restored: 21.5) -> Readback mismatch (expected: 22.5, got: 21.5)
+  ```
   * JSON 리포트: `reports/property-write-result.json`
   * **HTML 리포트**: `reports/property-write-result.html`
 
@@ -168,6 +180,12 @@ python property_write.py --dry-run
 ```
 
 캡처가 완료되면 `reports/bacnet_YYYYMMDD_HHMMSS.pcap` 파일이 자동 생성됩니다.
+
+* **Wireshark 패킷 분석 팁**:
+  - 각 오브젝트 테스트가 시작될 때마다 **`UnconfirmedTextMessage`** 패킷이 전송되어 와이어샤크 화면에서 오브젝트 구간을 한눈에 구분할 수 있습니다.
+  - 와이어샤크 Info 컬럼 예시:
+    `Unconfirmed-REQ unconfirmedTextMessage '=== [1/15] Object: analog-value,1 (AV-01) ==='`
+  - 와이어샤크 필터창에 `bacnet.text_message` 또는 `bacnet.apdu_service == 5`를 입력하면 모든 오브젝트 시작 지점을 책갈피(Bookmark)처럼 모아볼 수 있습니다.
 
 ---
 
@@ -201,7 +219,9 @@ python html_reporter.py reports/property-write-result.json
 1. **자동 원복 (Restore)**:
    - 쓰기 테스트 후 즉시 원래 값(`original_value`)으로 복구 쓰기를 실행합니다.
    - `--no-restore` 옵션을 명시하지 않는 한 모든 변경 사항은 원복됩니다.
-2. **Commandable 포인트 (AO, BO) 해제**:
-   - BACnet 우선순위(기본값 Priority 8)로 쓰기 검증 후, 원복 시 `Null`을 기록하여 원래 상위 우선순위 또는 Relinquish-Default 상태로 정상 반환합니다.
+2. **Commandable 포인트 (AO, BO, AV, BV, MSV, MSO) 해제**:
+   - BACnet 우선순위(기본값 Priority 8)로 쓰기 검증 후, 원복 시 `Null`을 기록하여 원래 상위 우선순위 또는 제어 프로그램/Relinquish-Default 상태로 정상 반환합니다. 장비가 `Null` 쓰기를 지원하지 않는 경우 원래 값(`orig_val`)으로 다시 써주는 Fallback 복원을 지원합니다.
 3. **입력 포인트 (AI, BI) 안전 제어**:
-   - 컨트롤러에 따라 Input 객체 쓰기 시 `write-access-denied`가 발생하면, `out-of-service=True`로 전환 후 시험하고 종료 시 반드시 `out-of-service=False`로 원복합니다.
+   - 컨트롤러에 따라 Input 객체 쓰기 시 `write-access-denied`가 발생하면, `out-of-service=True`로 전환 후 시험하고 종료 시 반드시 원래 상태(`False`)로 복구합니다.
+4. **복원 후 실제 값 재검증 (Post-Restore Readback)**:
+   - 복원 명령 완료 후 실제로 컨트롤러의 값이 원래 값으로 되돌아왔는지 추가 Readback을 수행하여 안전성을 재확인합니다.
