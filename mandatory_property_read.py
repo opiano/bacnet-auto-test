@@ -25,6 +25,8 @@ REQUIRED: dict[str, list[str]] = {
     "bi": ["present-value", "status-flags", "event-state", "out-of-service", "polarity"],
     "bo": ["present-value", "status-flags", "event-state", "out-of-service", "polarity", "priority-array", "relinquish-default", "current-command-priority"],
     "bv": ["present-value", "status-flags", "event-state", "out-of-service"],
+    "msi": ["present-value", "status-flags", "event-state", "out-of-service", "number-of-states"],
+    "mso": ["present-value", "status-flags", "event-state", "out-of-service", "number-of-states", "priority-array", "relinquish-default", "current-command-priority"],
     "msv": ["present-value", "status-flags", "event-state", "out-of-service", "number-of-states"],
     "device": ["system-status", "vendor-name", "vendor-identifier", "model-name", "firmware-revision", "application-software-version", "protocol-version", "protocol-revision", "protocol-services-supported", "protocol-object-types-supported", "object-list", "max-apdu-length-accepted", "segmentation-supported", "apdu-timeout", "number-of-apdu-retries", "device-address-binding", "database-revision"],
     "notification_class": ["notification-class", "priority", "ack-required", "recipient-list"],

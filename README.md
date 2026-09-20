@@ -30,6 +30,21 @@ pytest -v --bacnet-config config/controller.yaml \
   --html=reports/bacnet-report.html
 ```
 
+## 필수 속성(Mandatory Property) 검증 테스트
+
+대상 컨트롤러에 존재하는 Object들의 표준 필수 Property들을 일괄 검증합니다.
+
+```bash
+# 1. 대상 컨트롤러의 Object List를 자동 탐색하여 config 생성 (IP 지정)
+python generate_mandatory_config.py <CONTROLLER_IP>
+
+# 옵션: 타입별 1개씩만 샘플링하여 빠르게 검증하고 싶을 때
+# python generate_mandatory_config.py <CONTROLLER_IP> --first-per-type
+
+# 2. 필수 속성 검증 실행
+python mandatory_property_read.py --config config/mandatory-property-read.yaml
+```
+
 ## 쓰기 안전성
 
 `safe_write.enabled`의 기본값은 `false`입니다. 실설비 출력이 아닌 테스트 전용 AO/BO/AV/BV를 Controller 펌웨어에 제공한 뒤에만 `true`로 바꾸십시오. `relinquish_after_test: true`는 성공한 write priority를 `Null`로 해제합니다.
