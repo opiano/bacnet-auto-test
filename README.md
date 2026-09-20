@@ -41,9 +41,10 @@ python generate_config.py <CONTROLLER_IP>
 # 옵션: 타입별 1개씩만 샘플링하여 빠르게 검증하고 싶을 때
 # python generate_config.py <CONTROLLER_IP> --first-per-type
 
-# 2. 속성 검증 실행
+# 2. 속성 검증 실행 (JSON 및 브라우저용 HTML 결과 자동 생성)
 python property_read_test.py --config config/property-read.yaml
 # (또는 별칭: python property_read.py)
+# 결과: reports/property-read.json 및 reports/property-read.html 생성
 ```
 
 ## 속성 쓰기(Write) 및 원복(Restore) 검증 테스트
@@ -56,6 +57,7 @@ python property_write_test.py --first-per-type
 
 # 전체 오브젝트 쓰기 테스트
 python property_write_test.py --config config/property-read.yaml
+# 결과: reports/property-write-result.json 및 reports/property-write-result.html 생성
 
 # 특정 포인트만 테스트
 python property_write_test.py --object-id analog-value,1

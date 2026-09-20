@@ -550,6 +550,14 @@ async def run_write_tests(args: argparse.Namespace) -> int:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    # Generate HTML report alongside JSON
+    html_path = Path(args.html) if args.html else report_path.with_suffix(".html")
+    try:
+        from html_reporter import generate_html_report
+        generate_html_report(report_data, html_path, report_type="write")
+    except Exception as html_err:
+        print(f"Warning: Failed to generate HTML report: {html_err}", file=sys.stderr)
+
     print("\n=================================================================")
     print(f"Write Test Finished. Results:")
     print(f"  - Total Tested: {len(results)}")
@@ -558,6 +566,7 @@ async def run_write_tests(args: argparse.Namespace) -> int:
     print(f"  - Not Supported (Property omitted): {notsupp_count}")
     print(f"  - Failed / Mismatch: {failed_count}")
     print(f"Report JSON saved to: {report_path}")
+    print(f"Report HTML saved to: {html_path}")
     print("=================================================================\n")
 
     return 0 if failed_count == 0 else 1
@@ -576,6 +585,11 @@ def main() -> int:
         "--report", "-r",
         default="reports/property-write-result.json",
         help="Path to output JSON report (default: reports/property-write-result.json)",
+    )
+    parser.add_argument(
+        "--html",
+        default=None,
+        help="Path to output HTML report (default: same name as --report with .html)",
     )
     parser.add_argument(
         "--first-per-type",

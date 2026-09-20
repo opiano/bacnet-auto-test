@@ -3,17 +3,18 @@ python generate_config.py <CONTROLLER_IP>
 # 옵션 예시 (특정 인스턴스 지정 또는 타입별 1개씩 샘플링)
 # python generate_config.py 192.168.219.227 --first-per-type
 
-# 2. 표준 속성(Property) 자동 읽기 검증 실행
+# 2. 표준 속성(Property) 자동 읽기 검증 실행 (HTML 리포트 자동 생성)
 python property_read_test.py --config config/property-read.yaml
 # (또는 축약 별칭: python property_read.py)
-cat reports/property-read.json
+# 결과: reports/property-read.json, reports/property-read.html
 
-# 3. 주요 속성 쓰기(Write) 및 원복(Restore) 검증 테스트
+# 3. 주요 속성 쓰기(Write) 및 원복(Restore) 검증 테스트 (HTML 리포트 자동 생성)
 # 타입별 1개씩 샘플링 테스트 (추천: 빠른 확인)
 python property_write_test.py --first-per-type
 
 # 전체 오브젝트 쓰기 테스트
 python property_write_test.py --config config/property-read.yaml
+# 결과: reports/property-write-result.json, reports/property-write-result.html
 
 # 특정 오브젝트나 특정 속성만 테스트
 # python property_write_test.py --object-id analog-value,1

@@ -132,6 +132,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="config/property-read.yaml")
     parser.add_argument("--report", default="reports/property-read.json")
+    parser.add_argument("--html", default=None, help="Path to output HTML report (default: same name as --report with .html)")
     args = parser.parse_args()
     try:
         with Path(args.config).open(encoding="utf-8") as stream:
@@ -147,6 +148,15 @@ def main() -> int:
     report = Path(args.report)
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Generate HTML report
+    html_path = Path(args.html) if args.html else report.with_suffix(".html")
+    try:
+        from html_reporter import generate_html_report
+        generate_html_report(result, html_path, report_type="read")
+    except Exception as html_err:
+        print(f"Warning: Failed to generate HTML report: {html_err}", file=sys.stderr)
+
     for row in result["results"]:
         label = f"{row.get('object_id', 'setup')} / {row.get('property', '')}".rstrip(" / ")
         if "actual" in row:
@@ -161,7 +171,8 @@ def main() -> int:
             print(f"[{row['status'].upper()}] {label}")
         if "error" in row:
             print(f"  error: {row['error']}")
-    print(f"Report: {report} ({result['passed']} passed, {result['failed']} failed)")
+    print(f"\nReport JSON: {report}")
+    print(f"Report HTML: {html_path} ({result['passed']} passed, {result['failed']} failed)\n")
     return 0 if result["failed"] == 0 else 1
 
 
