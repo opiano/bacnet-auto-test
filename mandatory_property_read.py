@@ -17,21 +17,60 @@ from bacpypes3.argparse import SimpleArgumentParser
 
 # Properties required for every standard Object, followed by the Object-specific
 # required set defined by the BACpypes3 standard object classes.
-COMMON = ["object-identifier", "object-name", "object-type", "property-list"]
+COMMON = ["object-identifier", "object-name", "object-type", "property-list", "description"]
+
+# Alarm / Intrinsic Reporting related properties
+ANALOG_ALARM = [
+    "time-delay",
+    "notification-class",
+    "high-limit",
+    "low-limit",
+    "deadband",
+    "limit-enable",
+    "event-enable",
+    "acked-transitions",
+    "notify-type",
+    "event-time-stamps",
+    "event-message-texts",
+]
+
+BINARY_ALARM = [
+    "time-delay",
+    "notification-class",
+    "alarm-value",
+    "event-enable",
+    "acked-transitions",
+    "notify-type",
+    "event-time-stamps",
+    "event-message-texts",
+]
+
+MULTISTATE_ALARM = [
+    "time-delay",
+    "notification-class",
+    "alarm-values",
+    "fault-values",
+    "event-enable",
+    "acked-transitions",
+    "notify-type",
+    "event-time-stamps",
+    "event-message-texts",
+]
+
 REQUIRED: dict[str, list[str]] = {
-    "ai": ["present-value", "status-flags", "event-state", "out-of-service", "units"],
-    "ao": ["present-value", "status-flags", "event-state", "out-of-service", "units", "priority-array", "relinquish-default", "current-command-priority"],
-    "av": ["present-value", "status-flags", "event-state", "out-of-service", "units"],
-    "bi": ["present-value", "status-flags", "event-state", "out-of-service", "polarity"],
-    "bo": ["present-value", "status-flags", "event-state", "out-of-service", "polarity", "priority-array", "relinquish-default", "current-command-priority"],
-    "bv": ["present-value", "status-flags", "event-state", "out-of-service"],
-    "msi": ["present-value", "status-flags", "event-state", "out-of-service", "number-of-states"],
-    "mso": ["present-value", "status-flags", "event-state", "out-of-service", "number-of-states", "priority-array", "relinquish-default", "current-command-priority"],
-    "msv": ["present-value", "status-flags", "event-state", "out-of-service", "number-of-states"],
-    "iv": ["present-value", "status-flags", "event-state", "out-of-service", "units"],
-    "piv": ["present-value", "status-flags", "event-state", "out-of-service", "units"],
+    "ai": ["present-value", "status-flags", "event-state", "out-of-service", "units", *ANALOG_ALARM],
+    "ao": ["present-value", "status-flags", "event-state", "out-of-service", "units", "priority-array", "relinquish-default", "current-command-priority", *ANALOG_ALARM],
+    "av": ["present-value", "status-flags", "event-state", "out-of-service", "units", *ANALOG_ALARM],
+    "bi": ["present-value", "status-flags", "event-state", "out-of-service", "polarity", *BINARY_ALARM],
+    "bo": ["present-value", "status-flags", "event-state", "out-of-service", "polarity", "priority-array", "relinquish-default", "current-command-priority", *BINARY_ALARM],
+    "bv": ["present-value", "status-flags", "event-state", "out-of-service", *BINARY_ALARM],
+    "msi": ["present-value", "status-flags", "event-state", "out-of-service", "number-of-states", *MULTISTATE_ALARM],
+    "mso": ["present-value", "status-flags", "event-state", "out-of-service", "number-of-states", "priority-array", "relinquish-default", "current-command-priority", *MULTISTATE_ALARM],
+    "msv": ["present-value", "status-flags", "event-state", "out-of-service", "number-of-states", *MULTISTATE_ALARM],
+    "iv": ["present-value", "status-flags", "event-state", "out-of-service", "units", *ANALOG_ALARM],
+    "piv": ["present-value", "status-flags", "event-state", "out-of-service", "units", *ANALOG_ALARM],
     "csv": ["present-value", "status-flags", "event-state", "out-of-service"],
-    "lav": ["present-value", "status-flags", "event-state", "out-of-service", "units"],
+    "lav": ["present-value", "status-flags", "event-state", "out-of-service", "units", *ANALOG_ALARM],
     "network_port": ["status-flags", "reliability", "out-of-service", "network-type", "protocol-level", "network-number"],
     "file": ["file-type", "file-size", "modification-date", "archive", "read-only", "file-access-method"],
     "device": ["system-status", "vendor-name", "vendor-identifier", "model-name", "firmware-revision", "application-software-version", "protocol-version", "protocol-revision", "protocol-services-supported", "protocol-object-types-supported", "object-list", "max-apdu-length-accepted", "segmentation-supported", "apdu-timeout", "number-of-apdu-retries", "device-address-binding", "database-revision"],
