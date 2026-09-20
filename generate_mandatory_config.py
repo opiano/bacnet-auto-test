@@ -15,6 +15,7 @@ from typing import Any
 from bacpypes3.apdu import ErrorRejectAbortNack
 from bacpypes3.app import Application
 from bacpypes3.argparse import SimpleArgumentParser
+from bacpypes3.pdu import Address
 
 # BACnet standard object types mapped by integer code
 TYPE_INT_TO_NAME: dict[int, str] = {
@@ -123,6 +124,18 @@ def detect_local_ip(target_ip: str) -> str:
         s.close()
 
 
+def is_port_available(ip: str, port: int) -> bool:
+    """Check if a UDP port is available for binding on local IP."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.bind((ip, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
 def normalize_object_identifier(item: Any) -> tuple[str, int, str]:
     """
     Parse BACpypes ObjectIdentifier into (kebab_type, instance, object_id_str).
@@ -157,14 +170,20 @@ def normalize_object_identifier(item: Any) -> tuple[str, int, str]:
     return kebab_type, instance, object_id_str
 
 
-async def discover_device_instance(app: Application, target_address: str, timeout: float = 5.0) -> int:
-    """Find target device instance using unicast or broadcast Who-Is."""
+async def discover_device_instance(
+    app: Application,
+    target_address: str,
+    local_address: str,
+    timeout: float = 3.0,
+) -> int:
+    """Find target device instance using unicast, subnet broadcast, global broadcast, or candidate probe."""
     target_ip = target_address.split(":")[0]
 
-    # 1. Try unicast Who-Is directly to target
+    # 1. Try unicast Who-Is directly to target address using Address object
     print(f"[*] Sending unicast Who-Is to {target_address}...")
     try:
-        responses = await asyncio.wait_for(app.who_is(address=target_address), timeout=timeout)
+        dest = Address(target_address)
+        responses = await asyncio.wait_for(app.who_is(address=dest), timeout=timeout)
         if responses:
             for resp in responses:
                 dev_id = resp.iAmDeviceIdentifier
@@ -173,11 +192,39 @@ async def discover_device_instance(app: Application, target_address: str, timeou
                     print(f"[+] Discovered Device Instance {inst} via unicast Who-Is ({resp.pduSource})")
                     return int(inst)
     except Exception as e:
-        print(f"[-] Unicast Who-Is did not respond ({e}). Trying broadcast Who-Is...")
+        print(f"[-] Unicast Who-Is did not respond ({e}).")
 
-    # 2. Try broadcast Who-Is
+    # 2. Try subnet broadcast to port 47808 (ensures controller receives it even if client is on 47809)
     try:
-        print("[*] Sending broadcast Who-Is...")
+        local_ip = local_address.split("/")[0]
+        ip_parts = local_ip.split(".")
+        if len(ip_parts) == 4:
+            subnet_bcast = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.255:47808"
+            print(f"[*] Sending Who-Is to subnet broadcast {subnet_bcast}...")
+            dest_bcast = Address(subnet_bcast)
+            responses = await asyncio.wait_for(app.who_is(address=dest_bcast), timeout=timeout)
+            if responses:
+                for resp in responses:
+                    src_str = str(resp.pduSource)
+                    if target_ip in src_str:
+                        dev_id = resp.iAmDeviceIdentifier
+                        inst = dev_id[1] if isinstance(dev_id, (tuple, list)) else getattr(dev_id, "instance", None)
+                        if inst is not None:
+                            print(f"[+] Discovered Device Instance {inst} via subnet broadcast ({resp.pduSource})")
+                            return int(inst)
+                if len(responses) == 1:
+                    resp = responses[0]
+                    dev_id = resp.iAmDeviceIdentifier
+                    inst = dev_id[1] if isinstance(dev_id, (tuple, list)) else getattr(dev_id, "instance", None)
+                    if inst is not None:
+                        print(f"[+] Discovered single responding Device Instance {inst} ({resp.pduSource})")
+                        return int(inst)
+    except Exception as e:
+        print(f"[-] Subnet broadcast Who-Is did not respond ({e}).")
+
+    # 3. Try standard local Who-Is broadcast
+    try:
+        print("[*] Sending standard local broadcast Who-Is...")
         responses = await asyncio.wait_for(app.who_is(), timeout=timeout)
         if responses:
             for resp in responses:
@@ -186,7 +233,7 @@ async def discover_device_instance(app: Application, target_address: str, timeou
                     dev_id = resp.iAmDeviceIdentifier
                     inst = dev_id[1] if isinstance(dev_id, (tuple, list)) else getattr(dev_id, "instance", None)
                     if inst is not None:
-                        print(f"[+] Discovered Device Instance {inst} via broadcast Who-Is ({resp.pduSource})")
+                        print(f"[+] Discovered Device Instance {inst} via local broadcast ({resp.pduSource})")
                         return int(inst)
             if len(responses) == 1:
                 resp = responses[0]
@@ -196,11 +243,35 @@ async def discover_device_instance(app: Application, target_address: str, timeou
                     print(f"[+] Discovered single responding Device Instance {inst} ({resp.pduSource})")
                     return int(inst)
     except Exception as e:
-        print(f"[-] Broadcast Who-Is failed: {e}")
+        print(f"[-] Local broadcast Who-Is did not respond ({e}).")
+
+    # 4. Fallback: Directly probe candidate Device Instances (e.g. last octet of IP or standard IDs)
+    candidates: list[int] = []
+    try:
+        last_octet = int(target_ip.split(".")[-1])
+        candidates.append(last_octet)
+    except Exception:
+        pass
+    for cand in [1, 100, 1000, 1234, 900001]:
+        if cand not in candidates:
+            candidates.append(cand)
+
+    print(f"[*] Who-Is did not respond. Probing probable Device Instances directly: {candidates}...")
+    for cand in candidates:
+        try:
+            val = await asyncio.wait_for(
+                app.read_property(target_address, f"device,{cand}", "object-name"),
+                timeout=1.5,
+            )
+            if val is not None and not isinstance(val, ErrorRejectAbortNack):
+                print(f"[+] Candidate probe succeeded! Found Device Instance {cand} (name: {val})")
+                return cand
+        except Exception:
+            continue
 
     raise RuntimeError(
         f"Could not automatically discover Device Instance for {target_address}.\n"
-        f"Please specify it directly with: --device-instance <ID>"
+        f"Please specify it directly with: --device-instance <ID> (e.g. -i 130)"
     )
 
 
@@ -336,11 +407,19 @@ async def run(args: argparse.Namespace) -> int:
         detected_ip = detect_local_ip(target_ip)
         local_address = f"{detected_ip}/24"
 
+    local_ip_only = local_address.split("/")[0]
+
+    # Select UDP port: if not explicitly specified, prefer standard 47808 if free, else 47809
+    if args.udp_port is not None:
+        local_port = int(args.udp_port)
+    else:
+        local_port = 47808 if is_port_available(local_ip_only, 47808) else 47809
+
     print(f"[*] Target Device: {target_address}")
-    print(f"[*] Local Address: {local_address} (port: {args.udp_port}, instance: {args.local_instance})")
+    print(f"[*] Local Address: {local_address} (port: {local_port}, instance: {args.local_instance})")
 
     # Start BACnet application
-    app_address = f"{local_address}:{args.udp_port}" if args.udp_port != 47808 else local_address
+    app_address = f"{local_address}:{local_port}" if local_port != 47808 else local_address
     bacnet_args = SimpleArgumentParser().parse_args([
         "--address", app_address,
         "--instance", str(args.local_instance),
@@ -354,7 +433,9 @@ async def run(args: argparse.Namespace) -> int:
             device_instance = int(args.device_instance)
             print(f"[*] Using specified Device Instance: {device_instance}")
         else:
-            device_instance = await discover_device_instance(app, target_address, timeout=args.timeout)
+            device_instance = await discover_device_instance(
+                app, target_address, local_address, timeout=args.timeout
+            )
 
         # Step 2: Read object-list
         raw_objects = await read_object_list(app, target_address, device_instance, timeout=args.timeout)
@@ -427,7 +508,7 @@ async def run(args: argparse.Namespace) -> int:
             target_address=target_address,
             local_address=local_address,
             local_instance=args.local_instance,
-            local_port=args.udp_port,
+            local_port=local_port,
             timeout=args.timeout,
             mandatory_objects=mandatory_objects,
         )
@@ -436,7 +517,7 @@ async def run(args: argparse.Namespace) -> int:
         print(f"Config successfully generated: {output_path}")
         print(f"  - Target Address: {target_address}")
         print(f"  - Device Instance: {device_instance}")
-        print(f"  - Local Test Address: {local_address}")
+        print(f"  - Local Test Address: {local_address} (port: {local_port})")
         print(f"  - Total Configured Objects: {len(mandatory_objects)}")
         if skipped_types:
             skipped_summary = ", ".join(f"{t}: {c}" for t, c in sorted(skipped_types.items()))
@@ -458,7 +539,7 @@ def main() -> int:
         "target",
         nargs="?",
         default=None,
-        help="Target BACnet controller IP or IP:port (e.g. 192.168.219.227 or 192.168.219.227:47808)",
+        help="Target BACnet controller IP or IP:port (e.g. 192.168.219.130 or 192.168.219.130:47808)",
     )
     parser.add_argument(
         "--device", "-d",
@@ -470,12 +551,12 @@ def main() -> int:
         "--device-instance", "-i",
         type=int,
         default=None,
-        help="Target device instance number (auto-discovered via Who-Is if omitted)",
+        help="Target device instance number (auto-discovered if omitted, or probe fallback)",
     )
     parser.add_argument(
         "--local-address", "-l",
         default=None,
-        help="Test PC BACnet/IP with CIDR (e.g. 192.168.219.50/24). Auto-detected if omitted.",
+        help="Test PC BACnet/IP with CIDR (e.g. 192.168.219.125/24). Auto-detected if omitted.",
     )
     parser.add_argument(
         "--local-instance",
@@ -486,8 +567,8 @@ def main() -> int:
     parser.add_argument(
         "--udp-port", "-p",
         type=int,
-        default=47809,
-        help="Test PC UDP port (default: 47809)",
+        default=None,
+        help="Test PC UDP port (default: 47808 if available, else 47809)",
     )
     parser.add_argument(
         "--timeout", "-t",
