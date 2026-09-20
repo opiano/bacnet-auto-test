@@ -21,7 +21,7 @@
 
 3. **속성 쓰기 및 원복 검증 (`property_write.py`)**
    - 대상 속성에 테스트 값을 쓰고, Readback을 통해 실제 적용 여부 검증 후 원래 값으로 **안전 원복(Restore)**
-   - **Commandable 포인트 (AO, BO, AV, BV, MSV, MSO)**: Priority 8로 쓰기 검증 후, 원복 시 `Null`로 우선순위 자동 해제(Relinquish) 및 Fallback 복원
+   - **Commandable 포인트 (AO, BO, AV, BV, MSV, MSO)**: Priority 8로 쓰기 검증 후, 원복 시 원래 값(`original_value`)을 우선순위 8에 다시 기록하여 안전하게 복원
    - **복원 후 실제 값 재검증 (Post-Restore Readback)**: 복원 명령 전송 후 컨트롤러에서 실제로 원래 값으로 복귀했는지 추가 Readback 검증
    - **입력 포인트 (AI, BI) Present-Value 쓰기**: `write-access-denied` 발생 시 `out-of-service`를 `True`로 변경 후 쓰기 검증, 완료 후 다시 원래 상태(`False`)로 복구
    - **Multi-State `state-text` 배열 쓰기**: 컨트롤러의 `value-out-of-range` 방지를 위해 배열 1번 인덱스(`state-text[1]`)만 안전하게 쓰기/원복
@@ -219,8 +219,8 @@ python html_reporter.py reports/property-write-result.json
 1. **자동 원복 (Restore)**:
    - 쓰기 테스트 후 즉시 원래 값(`original_value`)으로 복구 쓰기를 실행합니다.
    - `--no-restore` 옵션을 명시하지 않는 한 모든 변경 사항은 원복됩니다.
-2. **Commandable 포인트 (AO, BO, AV, BV, MSV, MSO) 해제**:
-   - BACnet 우선순위(기본값 Priority 8)로 쓰기 검증 후, 원복 시 `Null`을 기록하여 원래 상위 우선순위 또는 제어 프로그램/Relinquish-Default 상태로 정상 반환합니다. 장비가 `Null` 쓰기를 지원하지 않는 경우 원래 값(`orig_val`)으로 다시 써주는 Fallback 복원을 지원합니다.
+2. **Commandable 포인트 (AO, BO, AV, BV, MSV, MSO) 복원**:
+   - BACnet 우선순위(기본값 Priority 8)로 쓰기 검증 후, 원복 시 원래 값(`original_value`)을 우선순위 8에 다시 기록하여 테스트 전의 원래 상태로 안전하게 복원합니다.
 3. **입력 포인트 (AI, BI) 안전 제어**:
    - 컨트롤러에 따라 Input 객체 쓰기 시 `write-access-denied`가 발생하면, `out-of-service=True`로 전환 후 시험하고 종료 시 반드시 원래 상태(`False`)로 복구합니다.
 4. **복원 후 실제 값 재검증 (Post-Restore Readback)**:
