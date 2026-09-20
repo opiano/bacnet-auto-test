@@ -122,9 +122,31 @@ def compute_test_value(prop: str, orig_val: Any, profile: str) -> Any:
             return "active"
         return "inactive"
 
-    # 5. Analog / Real / Float values (Limits, deadband, cov, analog PV)
+    # 5. Integer-Value (iv) - signed Integer
+    if profile == "iv":
+        if prop in ("present-value", "high-limit", "low-limit", "deadband", "cov-increment"):
+            try:
+                v = int(float(orig_val))
+                if prop == "low-limit":
+                    return v - 1
+                return v + 1
+            except (TypeError, ValueError):
+                return 10
+
+    # 6. Positive-Integer-Value (piv) - unsigned Integer (>= 0 or >= 1)
+    if profile == "piv":
+        if prop in ("present-value", "high-limit", "low-limit", "deadband", "cov-increment"):
+            try:
+                v = max(0, int(float(orig_val)))
+                if prop == "low-limit":
+                    return max(0, v - 1)
+                return max(1, v + 1)
+            except (TypeError, ValueError):
+                return 10
+
+    # 7. Analog / Real / Float values (Limits, deadband, cov, analog PV: ai, ao, av, lav)
     if prop in ("high-limit", "low-limit", "deadband", "cov-increment") or (
-        profile in ("ai", "ao", "av", "iv", "piv", "lav") and prop == "present-value"
+        profile in ("ai", "ao", "av", "lav") and prop == "present-value"
     ):
         try:
             val_num = float(orig_val)
