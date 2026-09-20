@@ -19,6 +19,13 @@ python property_write_test.py --config config/mandatory-property-read.yaml
 # python property_write_test.py --property high-limit
 # python property_write_test.py --dry-run   # 쓰기 전 미리보기
 
-# 4. 기본 Read/Write 테스트
+# 4. Wireshark 패킷 캡처와 함께 테스트 실행 (자동으로 .pcap 파일 생성)
+./run_with_pcap.sh python mandatory_property_read.py --config config/mandatory-property-read.yaml
+./run_with_pcap.sh python property_write_test.py --first-per-type
+
+# 생성된 pcap 파일을 윈도우 PC로 복사 (윈도우 PowerShell에서 실행):
+# scp pi@192.168.219.125:/home/pi/bacnet-auto-test/reports/*.pcap .
+
+# 5. 기본 Read/Write 테스트
 python simple_bacnet_test.py --config config/simple-bacnet-test.yaml
 cat reports/bacnet-simple-result.json

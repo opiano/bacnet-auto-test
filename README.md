@@ -60,6 +60,22 @@ python property_write_test.py --config config/mandatory-property-read.yaml
 python property_write_test.py --object-id analog-value,1
 ```
 
+## Wireshark 패킷 캡처 (PCAP)
+
+테스트 실행 중 오가는 모든 BACnet 패킷(UDP 47808/47809)을 자동으로 캡처하여 Wireshark에서 열어볼 수 있는 `.pcap` 파일로 저장합니다.
+
+```bash
+# 실행할 명령어 앞에 ./run_with_pcap.sh 만 붙여주면 됩니다:
+./run_with_pcap.sh python mandatory_property_read.py --config config/mandatory-property-read.yaml
+./run_with_pcap.sh python property_write_test.py --first-per-type
+```
+
+캡처 완료 후 `reports/bacnet_YYYYMMDD_HHMMSS.pcap` 파일이 자동 생성됩니다.
+Windows PC에서 가져오려면 PowerShell에서:
+```powershell
+scp pi@<라즈베리파이IP>:/home/pi/bacnet-auto-test/reports/*.pcap .
+```
+
 ## 쓰기 안전성
 
 `safe_write.enabled`의 기본값은 `false`입니다. 실설비 출력이 아닌 테스트 전용 AO/BO/AV/BV를 Controller 펌웨어에 제공한 뒤에만 `true`로 바꾸십시오. `relinquish_after_test: true`는 성공한 write priority를 `Null`로 해제합니다.
