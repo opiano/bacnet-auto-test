@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
 from bacpypes3.apdu import ErrorRejectAbortNack
 from bacpypes3.app import Application
 from bacpypes3.argparse import SimpleArgumentParser
@@ -132,14 +133,38 @@ def detect_local_ip(target_ip: str) -> str:
 
 def is_port_available(ip: str, port: int) -> bool:
     """Check if a UDP port is available for binding on local IP."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.bind((ip, port))
-        return True
-    except OSError:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.bind((ip, port))
+            return True
+    except OSError as e:
+        if getattr(e, "errno", None) in (99, 10049) or "10049" in str(e):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s2:
+                    s2.bind(("", port))
+                    return True
+            except OSError:
+                return False
         return False
-    finally:
-        s.close()
+
+
+def get_available_port(ip: str, preferred_port: int) -> int:
+    """Try preferred port first; if unavailable, fallback to preferred_port + 1."""
+    if is_port_available(ip, preferred_port):
+        return preferred_port
+
+    fallback_port = preferred_port + 1
+    if not is_port_available(ip, fallback_port):
+        for p in range(preferred_port + 2, preferred_port + 10):
+            if is_port_available(ip, p):
+                fallback_port = p
+                break
+
+    print(
+        f"[!] UDP port {preferred_port} is already in use on {ip}. "
+        f"Falling back to port {fallback_port}."
+    )
+    return fallback_port
 
 
 def normalize_object_identifier(item: Any) -> tuple[str, int, str]:
@@ -415,11 +440,25 @@ async def run(args: argparse.Namespace) -> int:
 
     local_ip_only = local_address.split("/")[0]
 
-    # Select UDP port: if not explicitly specified, prefer standard 47808 if free, else 47809
+    # Select UDP port: check CLI argument first, then existing YAML file, else default 47808
+    configured_port = None
     if args.udp_port is not None:
-        local_port = int(args.udp_port)
+        configured_port = int(args.udp_port)
     else:
-        local_port = 47808 if is_port_available(local_ip_only, 47808) else 47809
+        output_file = Path(args.output)
+        if output_file.exists():
+            try:
+                with output_file.open(encoding="utf-8") as f:
+                    existing_data = yaml.safe_load(f) or {}
+                    if "test_pc" in existing_data and "udp_port" in existing_data["test_pc"]:
+                        configured_port = int(existing_data["test_pc"]["udp_port"])
+            except Exception:
+                pass
+    if configured_port is None:
+        configured_port = 47808
+
+    # Check port availability: try configured_port first, fallback to configured_port + 1 if in use
+    local_port = get_available_port(local_ip_only, configured_port)
 
     print(f"[*] Target Device: {target_address}")
     print(f"[*] Local Address: {local_address} (port: {local_port}, instance: {args.local_instance})")

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import socket
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -136,6 +137,42 @@ async def send_object_marker(
         pass
 
 
+def is_port_available(ip: str, port: int) -> bool:
+    """Check if a UDP port is available for binding on local IP."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.bind((ip, port))
+            return True
+    except OSError as e:
+        if getattr(e, "errno", None) in (99, 10049) or "10049" in str(e):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s2:
+                    s2.bind(("", port))
+                    return True
+            except OSError:
+                return False
+        return False
+
+
+def get_available_port(ip: str, preferred_port: int) -> int:
+    """Try preferred port first; if unavailable, fallback to preferred_port + 1."""
+    if is_port_available(ip, preferred_port):
+        return preferred_port
+
+    fallback_port = preferred_port + 1
+    if not is_port_available(ip, fallback_port):
+        for p in range(preferred_port + 2, preferred_port + 10):
+            if is_port_available(ip, p):
+                fallback_port = p
+                break
+
+    print(
+        f"[!] UDP port {preferred_port} is already in use on {ip}. "
+        f"Falling back to port {fallback_port}."
+    )
+    return fallback_port
+
+
 async def run_read_tests(args: argparse.Namespace) -> int:
     config_path = Path(args.config)
     if not config_path.exists():
@@ -150,10 +187,18 @@ async def run_read_tests(args: argparse.Namespace) -> int:
             raise ValueError(f"Missing required key in config: {key}")
 
     pc = config["test_pc"]
-    local_address = str(pc["address"])
-    udp_port = int(pc.get("udp_port", 47808))
-    if udp_port != 47808 and ":" not in local_address:
-        local_address = f"{local_address}:{udp_port}"
+    raw_local_address = str(pc["address"])
+    if ":" in raw_local_address:
+        base_addr, addr_port_str = raw_local_address.split(":", 1)
+        configured_port = int(addr_port_str)
+    else:
+        base_addr = raw_local_address
+        configured_port = int(pc.get("udp_port", 47808))
+
+    local_ip_only = base_addr.split("/")[0]
+    selected_port = get_available_port(local_ip_only, configured_port)
+
+    local_address = f"{base_addr}:{selected_port}" if selected_port != 47808 else base_addr
     timeout = float(pc.get("timeout_seconds", 5))
     target = str(config["device"]["address"])
 

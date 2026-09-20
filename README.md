@@ -225,3 +225,6 @@ python html_reporter.py reports/property-write-result.json
    - 컨트롤러에 따라 Input 객체 쓰기 시 `write-access-denied`가 발생하면, `out-of-service=True`로 전환 후 시험하고 종료 시 반드시 원래 상태(`False`)로 복구합니다.
 4. **복원 후 실제 값 재검증 (Post-Restore Readback)**:
    - 복원 명령 완료 후 실제로 컨트롤러의 값이 원래 값으로 되돌아왔는지 추가 Readback을 수행하여 안전성을 재확인합니다.
+5. **UDP 포트 충돌 자동 회피 (Auto-fallback to Port + 1)**:
+   - YAML 설정에 지정된 포트(기본 47808 또는 47809)의 바인딩 가능 여부를 테스트 시작 전 실시간 점검합니다.
+   - 다른 프로그램(VTS, Wireshark, BACnet 데몬 등)이 해당 포트를 이미 사용 중인 경우, 에러로 중단되지 않고 자동으로 `지정 포트 + 1`(예: 47808 사용 중이면 47809)로 우회하여 실행합니다 (`generate_config.py`, `property_read.py`, `property_write.py` 공통 적용).
