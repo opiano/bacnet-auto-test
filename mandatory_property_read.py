@@ -31,7 +31,6 @@ ANALOG_ALARM = [
     "acked-transitions",
     "notify-type",
     "event-time-stamps",
-    "event-message-texts",
 ]
 
 BINARY_ALARM = [
@@ -42,7 +41,6 @@ BINARY_ALARM = [
     "acked-transitions",
     "notify-type",
     "event-time-stamps",
-    "event-message-texts",
 ]
 
 MULTISTATE_ALARM = [
@@ -54,7 +52,6 @@ MULTISTATE_ALARM = [
     "acked-transitions",
     "notify-type",
     "event-time-stamps",
-    "event-message-texts",
 ]
 
 REQUIRED: dict[str, list[str]] = {
