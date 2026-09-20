@@ -45,6 +45,21 @@ python generate_mandatory_config.py <CONTROLLER_IP>
 python mandatory_property_read.py --config config/mandatory-property-read.yaml
 ```
 
+## 속성 쓰기(Write) 및 원복(Restore) 검증 테스트
+
+오브젝트들의 주요 속성(이름, 설명, 알람 한계값, Deadband, Time-Delay, Polarity, Present-Value 등)에 대해 쓰기 및 Readback 일치 여부를 검증하고, 검증 후 원래 값으로 자동 원복합니다.
+
+```bash
+# 빠른 스모크 테스트 (타입별 1개씩 샘플링)
+python property_write_test.py --first-per-type
+
+# 전체 오브젝트 쓰기 테스트
+python property_write_test.py --config config/mandatory-property-read.yaml
+
+# 특정 포인트만 테스트
+python property_write_test.py --object-id analog-value,1
+```
+
 ## 쓰기 안전성
 
 `safe_write.enabled`의 기본값은 `false`입니다. 실설비 출력이 아닌 테스트 전용 AO/BO/AV/BV를 Controller 펌웨어에 제공한 뒤에만 `true`로 바꾸십시오. `relinquish_after_test: true`는 성공한 write priority를 `Null`로 해제합니다.
