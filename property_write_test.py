@@ -150,14 +150,17 @@ def compute_test_value(prop: str, orig_val: Any, profile: str) -> Any:
         except (TypeError, ValueError):
             return 1
 
-    # 8. State-Text (Array of CharacterString)
+    # 8. State-Text (Array index 1 CharacterString)
     if prop == "state-text":
         if isinstance(orig_val, (list, tuple)) and orig_val:
-            return [
-                str(item)[:-2] if str(item).endswith("_T") else f"{item}_T"
-                for item in orig_val
-            ]
-        return ["State_1_T", "State_2_T"]
+            s = str(orig_val[0])
+        else:
+            s = str(orig_val) if orig_val is not None else "State_1"
+        if s.endswith("_T"):
+            return s[:-2]
+        if len(s) > 20:
+            return s[:18] + "_T"
+        return f"{s}_T" if s else "State_1_T"
 
     # 9. Units
     if prop == "units":
@@ -229,16 +232,25 @@ async def test_single_property(
     dry_run: bool,
 ) -> dict[str, Any]:
     """Test write and readback on a single object property."""
+    array_index = 1 if prop == "state-text" else None
+
     entry: dict[str, Any] = {
         "object_id": obj_id,
         "object_name": obj_name,
         "profile": profile,
         "property": prop,
     }
+    if array_index is not None:
+        entry["array_index"] = array_index
 
     # Step 1: Read original value
     try:
-        raw_orig = await asyncio.wait_for(app.read_property(target, obj_id, prop), timeout=timeout)
+        raw_orig = await asyncio.wait_for(
+            app.read_property(target, obj_id, prop, array_index)
+            if array_index is not None
+            else app.read_property(target, obj_id, prop),
+            timeout=timeout,
+        )
         if isinstance(raw_orig, ErrorRejectAbortNack):
             raise RuntimeError(str(raw_orig))
         orig_val = to_json(raw_orig)
@@ -271,7 +283,7 @@ async def test_single_property(
     # Step 3: Write test value
     try:
         await asyncio.wait_for(
-            app.write_property(target, obj_id, prop, str(test_val), None, write_prio),
+            app.write_property(target, obj_id, prop, str(test_val), array_index, write_prio),
             timeout=timeout,
         )
     except (SystemExit, KeyboardInterrupt):
@@ -306,7 +318,7 @@ async def test_single_property(
 
                 # 3. Retry writing present-value with out-of-service=True
                 await asyncio.wait_for(
-                    app.write_property(target, obj_id, prop, str(test_val), None, write_prio),
+                    app.write_property(target, obj_id, prop, str(test_val), array_index, write_prio),
                     timeout=timeout,
                 )
             except (SystemExit, KeyboardInterrupt):
@@ -336,7 +348,12 @@ async def test_single_property(
 
     # Step 4: Readback verification
     try:
-        raw_actual = await asyncio.wait_for(app.read_property(target, obj_id, prop), timeout=timeout)
+        raw_actual = await asyncio.wait_for(
+            app.read_property(target, obj_id, prop, array_index)
+            if array_index is not None
+            else app.read_property(target, obj_id, prop),
+            timeout=timeout,
+        )
         actual_val = to_json(raw_actual)
         entry["actual_readback"] = actual_val
         matched = values_match(actual_val, test_val)
@@ -354,13 +371,13 @@ async def test_single_property(
             if is_commandable:
                 # Relinquish priority back to Null
                 await asyncio.wait_for(
-                    app.write_property(target, obj_id, prop, "Null", None, write_prio),
+                    app.write_property(target, obj_id, prop, "Null", array_index, write_prio),
                     timeout=timeout,
                 )
             else:
                 restore_val = orig_val if orig_val is not None else ""
                 await asyncio.wait_for(
-                    app.write_property(target, obj_id, prop, str(restore_val), None, None),
+                    app.write_property(target, obj_id, prop, str(restore_val), array_index, None),
                     timeout=timeout,
                 )
             entry["restored"] = True
@@ -476,7 +493,8 @@ async def run_write_tests(args: argparse.Namespace) -> int:
                 results.append(result)
 
                 # Format terminal display
-                label = f"{obj_id} / {prop}"
+                prop_disp = f"{prop}[{result['array_index']}]" if result.get("array_index") is not None else prop
+                label = f"{obj_id} / {prop_disp}"
                 status = result.get("status", "unknown").upper()
 
                 if status == "WRITABLE":
