@@ -479,6 +479,12 @@ async def run_write_tests(args: argparse.Namespace) -> int:
                     if p not in props_to_test:
                         props_to_test.append(p)
 
+            # Exclude properties that are not supported or explicitly requested to be excluded
+            if profile == "bo" and "alarm-value" in props_to_test:
+                props_to_test.remove("alarm-value")
+            if profile in ("trend_log", "tl") and "log-buffer" in props_to_test:
+                props_to_test.remove("log-buffer")
+
             # Optional filter by specific property
             if args.property_name:
                 props_to_test = [p for p in props_to_test if p == args.property_name]

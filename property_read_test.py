@@ -43,6 +43,16 @@ BINARY_ALARM = [
     "event-time-stamps",
 ]
 
+# Binary Output has COMMAND_FAILURE reporting (feedback-value vs present-value) and no alarm-value
+BINARY_OUTPUT_ALARM = [
+    "time-delay",
+    "notification-class",
+    "event-enable",
+    "acked-transitions",
+    "notify-type",
+    "event-time-stamps",
+]
+
 MULTISTATE_ALARM = [
     "time-delay",
     "notification-class",
@@ -59,7 +69,7 @@ REQUIRED: dict[str, list[str]] = {
     "ao": ["present-value", "status-flags", "event-state", "out-of-service", "units", "priority-array", "relinquish-default", "current-command-priority", *ANALOG_ALARM],
     "av": ["present-value", "status-flags", "event-state", "out-of-service", "units", *ANALOG_ALARM],
     "bi": ["present-value", "status-flags", "event-state", "out-of-service", "polarity", *BINARY_ALARM],
-    "bo": ["present-value", "status-flags", "event-state", "out-of-service", "polarity", "priority-array", "relinquish-default", "current-command-priority", *BINARY_ALARM],
+    "bo": ["present-value", "status-flags", "event-state", "out-of-service", "polarity", "priority-array", "relinquish-default", "current-command-priority", *BINARY_OUTPUT_ALARM],
     "bv": ["present-value", "status-flags", "event-state", "out-of-service", *BINARY_ALARM],
     "msi": ["present-value", "status-flags", "event-state", "out-of-service", "number-of-states", *MULTISTATE_ALARM],
     "mso": ["present-value", "status-flags", "event-state", "out-of-service", "number-of-states", "priority-array", "relinquish-default", "current-command-priority", *MULTISTATE_ALARM],
@@ -74,7 +84,7 @@ REQUIRED: dict[str, list[str]] = {
     "notification_class": ["notification-class", "priority", "ack-required", "recipient-list"],
     "calendar": ["present-value", "date-list"],
     "schedule": ["present-value", "effective-period", "schedule-default", "list-of-object-property-references", "priority-for-writing", "status-flags", "reliability", "out-of-service"],
-    "trend_log": ["enable", "stop-when-full", "buffer-size", "log-buffer", "record-count", "total-record-count", "logging-type", "status-flags", "reliability"],
+    "trend_log": ["enable", "stop-when-full", "buffer-size", "record-count", "total-record-count", "logging-type", "status-flags", "reliability"],
 }
 
 
@@ -114,6 +124,10 @@ async def run(config: dict[str, Any]) -> dict[str, Any]:
             if profile not in REQUIRED:
                 raise ValueError(f"Unknown profile: {profile}. Use one of: {', '.join(REQUIRED)}")
             for prop in [*COMMON, *REQUIRED[profile]]:
+                if profile == "bo" and prop == "alarm-value":
+                    continue
+                if profile in ("trend_log", "tl") and prop == "log-buffer":
+                    continue
                 entry = {"object_name": obj.get("name", obj["object_id"]), "object_id": obj["object_id"], "profile": profile, "property": prop}
                 try:
                     value = await asyncio.wait_for(app.read_property(target, obj["object_id"], prop), timeout=timeout)
