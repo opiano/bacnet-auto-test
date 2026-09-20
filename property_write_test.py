@@ -265,6 +265,9 @@ async def test_single_property(
     is_commandable = profile in ("ao", "bo") and prop == "present-value"
     write_prio = priority if is_commandable else None
 
+    oos_switched = False
+    orig_oos = False
+
     # Step 3: Write test value
     try:
         await asyncio.wait_for(
@@ -275,15 +278,61 @@ async def test_single_property(
         raise
     except BaseException as write_err:
         err_str = str(write_err)
-        if (
+        is_denied = (
             "write-access-denied" in err_str.lower()
             or "read-only" in err_str.lower()
             or "not-for-writing" in err_str.lower()
-        ):
-            entry.update(status="read_only", message="Write access denied (property is read-only)")
+        )
+
+        # For AI and BI present-value: If write is denied, set out-of-service=True and retry!
+        if profile in ("ai", "bi") and prop == "present-value" and is_denied:
+            try:
+                # 1. Read and backup current out-of-service state
+                raw_oos = await asyncio.wait_for(
+                    app.read_property(target, obj_id, "out-of-service"), timeout=timeout
+                )
+                orig_oos = bool(to_json(raw_oos))
+            except BaseException:
+                orig_oos = False
+
+            try:
+                # 2. Set out-of-service = True
+                await asyncio.wait_for(
+                    app.write_property(target, obj_id, "out-of-service", "True", None, None),
+                    timeout=timeout,
+                )
+                oos_switched = True
+                entry["out_of_service_used"] = True
+
+                # 3. Retry writing present-value with out-of-service=True
+                await asyncio.wait_for(
+                    app.write_property(target, obj_id, prop, str(test_val), None, write_prio),
+                    timeout=timeout,
+                )
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except BaseException as oos_retry_err:
+                entry.update(
+                    status="read_only",
+                    message=f"Write access denied (even with out-of-service=True: {oos_retry_err})",
+                )
+                # Ensure out-of-service is restored if it was switched
+                if oos_switched:
+                    try:
+                        restore_oos = "True" if orig_oos else "False"
+                        await asyncio.wait_for(
+                            app.write_property(target, obj_id, "out-of-service", restore_oos, None, None),
+                            timeout=timeout,
+                        )
+                    except BaseException:
+                        pass
+                return entry
         else:
-            entry.update(status="write_failed", error=f"{type(write_err).__name__}: {err_str}")
-        return entry
+            if is_denied:
+                entry.update(status="read_only", message="Write access denied (property is read-only)")
+            else:
+                entry.update(status="write_failed", error=f"{type(write_err).__name__}: {err_str}")
+            return entry
 
     # Step 4: Readback verification
     try:
@@ -300,8 +349,8 @@ async def test_single_property(
         entry.update(status="readback_failed", error=f"{type(readback_err).__name__}: {readback_err}")
 
     # Step 5: Restore original value
-    if restore:
-        try:
+    try:
+        if restore:
             if is_commandable:
                 # Relinquish priority back to Null
                 await asyncio.wait_for(
@@ -315,11 +364,24 @@ async def test_single_property(
                     timeout=timeout,
                 )
             entry["restored"] = True
-        except (SystemExit, KeyboardInterrupt):
-            raise
-        except BaseException as rest_err:
-            entry["restored"] = False
-            entry["restore_error"] = str(rest_err)
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except BaseException as rest_err:
+        entry["restored"] = False
+        entry["restore_error"] = str(rest_err)
+    finally:
+        # Always restore out-of-service back to original (or False) if it was switched!
+        if oos_switched:
+            try:
+                restore_oos = "True" if orig_oos else "False"
+                await asyncio.wait_for(
+                    app.write_property(target, obj_id, "out-of-service", restore_oos, None, None),
+                    timeout=timeout,
+                )
+                entry["out_of_service_restored"] = True
+            except BaseException as oos_rest_err:
+                entry["out_of_service_restored"] = False
+                entry["out_of_service_restore_error"] = str(oos_rest_err)
 
     return entry
 
@@ -421,7 +483,8 @@ async def run_write_tests(args: argparse.Namespace) -> int:
                     orig = result.get("original_value")
                     test_v = result.get("test_value")
                     rest_str = " (restored)" if result.get("restored") else ""
-                    print(f"[{status}]  {label} (orig: {orig} -> test: {test_v}{rest_str})")
+                    oos_str = " [via out-of-service=True -> restored to False]" if result.get("out_of_service_used") else ""
+                    print(f"[{status}]  {label}{oos_str} (orig: {orig} -> test: {test_v}{rest_str})")
                 elif status == "READ_ONLY":
                     print(f"[{status}] {label} ({result.get('message', 'read-only')})")
                 elif status == "NOT_SUPPORTED":
