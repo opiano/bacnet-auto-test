@@ -19,12 +19,19 @@ echo "    File:   $PCAP_FILE"
 echo "    Filter: $FILTER"
 echo "=========================================================="
 
-# Check for tcpdump or tshark
+# Check for tcpdump or tshark and determine if sudo is needed
+SUDO_CMD=""
 if command -v tcpdump &> /dev/null; then
-    sudo tcpdump -i any -nn "$FILTER" -w "$PCAP_FILE" &> /dev/null &
+    if ! tcpdump -D &> /dev/null; then
+        SUDO_CMD="sudo"
+    fi
+    $SUDO_CMD tcpdump -i any -nn "$FILTER" -w "$PCAP_FILE" &> /dev/null &
     CAP_PID=$!
 elif command -v tshark &> /dev/null; then
-    sudo tshark -i any -f "$FILTER" -w "$PCAP_FILE" &> /dev/null &
+    if ! tshark -D &> /dev/null; then
+        SUDO_CMD="sudo"
+    fi
+    $SUDO_CMD tshark -i any -f "$FILTER" -w "$PCAP_FILE" &> /dev/null &
     CAP_PID=$!
 else
     echo "Error: Neither tcpdump nor tshark is installed."
@@ -44,11 +51,19 @@ echo "----------------------------------------------------------"
 
 # Stop packet capture (SIGINT allows tcpdump to flush buffers cleanly)
 echo "[*] Stopping packet capture..."
-sudo kill -2 $CAP_PID 2>/dev/null || sudo kill $CAP_PID 2>/dev/null
+if [ -n "$SUDO_CMD" ]; then
+    sudo kill -2 $CAP_PID 2>/dev/null || sudo kill $CAP_PID 2>/dev/null
+else
+    kill -2 $CAP_PID 2>/dev/null || kill $CAP_PID 2>/dev/null
+fi
 wait $CAP_PID 2>/dev/null
 
 # Allow non-root users to read the pcap file
-sudo chmod 644 "$PCAP_FILE" 2>/dev/null
+if [ -n "$SUDO_CMD" ]; then
+    sudo chmod 644 "$PCAP_FILE" 2>/dev/null
+else
+    chmod 644 "$PCAP_FILE" 2>/dev/null
+fi
 
 echo "=========================================================="
 echo "[+] Packet capture saved: $PCAP_FILE"
