@@ -1,0 +1,36 @@
+# Copy to config/simple-bacnet-test.yaml and edit to match the test network.
+device:
+  # Target BACnet/IP controller address. BACnet default UDP port is 47808.
+  address: "192.168.10.20:47808"
+
+test_pc:
+  # Test PC address with CIDR. It must be on the controller's BACnet/IP network.
+  address: "192.168.10.10/24"
+  device_instance: 900001
+  udp_port: 47808
+  timeout_seconds: 5
+
+# Each entry is read once and written to the result JSON file.
+reads:
+  - name: supply_air_temperature
+    object_id: "analog-input,1"
+    property: "present-value"
+  - name: fan_status
+    object_id: "binary-input,1"
+    property: "present-value"
+
+# Each entry writes a value, then reads the same property again and validates it.
+# Use test-only points. Do not configure live plant-control outputs here.
+writes:
+  - name: test_setpoint
+    object_id: "analog-output,1001"
+    property: "present-value"
+    value: 21.5
+    priority: 8
+    expected: 21.5
+  - name: test_enable
+    object_id: "binary-value,1002"
+    property: "present-value"
+    value: "active"
+    priority: 8
+    expected: "active"

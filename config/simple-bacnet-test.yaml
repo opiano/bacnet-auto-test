@@ -1,0 +1,79 @@
+# Copy to config/simple-bacnet-test.yaml and edit to match the test network.
+device:
+  # Target BACnet/IP controller address. BACnet default UDP port is 47808.
+  address: "10.251.34.227:47808"
+
+test_pc:
+  # Test PC address with CIDR. It must be on the controller's BACnet/IP network.
+  address: "10.251.34.145/24"
+  device_instance: 900001
+  udp_port: 47809
+  timeout_seconds: 5
+
+# Each entry is read once and written to the result JSON file.
+reads:
+  - name: av-1
+    object_id: "analog-value,1"
+    property: "present-value"
+  - name: av-1
+    object_id: "analog-value,1"
+    property: "object-name"
+  - name: fan_status
+    object_id: "binary-value,1"
+    property: "present-value"
+  - name: ahu_occupancy_schedule
+    object_id: "schedule,2"
+    property: "weekly-schedule"
+
+# Each entry writes a value, then reads the same property again and validates it.
+# Use test-only points. Do not configure live plant-control outputs here.
+writes:
+  - name: test_setpoint
+    object_id: "analog-value,2"
+    property: "present-value"
+    value: 21.5
+    priority: 8
+    expected: 21.5
+  - name: test_enable
+    object_id: "binary-value,2"
+    property: "present-value"
+    value: "active"
+    priority: 8
+    expected: "active"
+  - name: ahu_occupancy_schedule
+    object_id: "schedule,2"
+    property: "weekly-schedule"
+    type: weekly_schedule
+    value:
+      monday:
+        - time: "08:00"
+          value: 21.5
+        - time: "18:00"
+          value: 18.0
+
+      tuesday:
+        - time: "08:00"
+          value: 21.5
+        - time: "18:00"
+          value: 18.0
+
+      wednesday:
+        - time: "08:00"
+          value: 21.5
+        - time: "18:00"
+          value: 18.0
+
+      thursday:
+        - time: "08:00"
+          value: 21.5
+        - time: "18:00"
+          value: 18.0
+
+      friday:
+        - time: "08:00"
+          value: 21.5
+        - time: "18:00"
+          value: 18.0
+
+      saturday: []
+      sunday: []

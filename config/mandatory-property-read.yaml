@@ -1,0 +1,45 @@
+# BACnet/IP target and Test PC settings.
+device:
+  address: "10.251.34.227:47808"
+
+test_pc:
+  address: "10.251.34.145/24"
+  device_instance: 900001
+  udp_port: 47809
+  timeout_seconds: 5
+
+# Replace every Object ID with an Object instance that actually exists
+# in the target controller.  The profile selects its standard required
+# Property list; do not change it unless the Object type changes.
+mandatory_objects:
+  - name: analog_value_1
+    object_id: "analog-value,1"       # Confirmed in the basic test example.
+    profile: av
+
+  - name: binary_value_1
+    object_id: "binary-value,1"       # Confirmed in the basic test example.
+    profile: bv
+
+  - name: multi_state_value_1
+    object_id: "multi-state-value,1"  # Replace if MSV:1 does not exist.
+    profile: msv
+
+  - name: controller_device
+    object_id: "device,227"          # Replace 1234 with the Controller Device Instance.
+    profile: device
+
+  - name: notification_class_1
+    object_id: "notification-class,1" # Replace if Notification Class:1 does not exist.
+    profile: notification_class
+
+  - name: calendar_1
+    object_id: "calendar,1"           # Replace if Calendar:1 does not exist.
+    profile: calendar
+
+  - name: schedule_1
+    object_id: "schedule,2"           # Confirmed in the schedule read test.
+    profile: schedule
+
+  - name: trend_log_1
+    object_id: "trend-log,1"          # Replace if Trend Log:1 does not exist.
+    profile: trend_log

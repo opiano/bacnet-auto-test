@@ -1,0 +1,34 @@
+device:
+  address: "10.251.34.227:47808"
+
+test_pc:
+  address: "10.251.34.145/24"
+  device_instance: 900001
+  udp_port: 47809
+  timeout_seconds: 5
+
+# Add only Object IDs that exist in the controller.
+# profile chooses the standard mandatory BACnet Property list for that Object type.
+mandatory_objects:
+  - name: supply_air_temperature
+    object_id: "analog-input,1"
+    profile: ai
+  - name: discharge_setpoint
+    object_id: "analog-output,1"
+    profile: ao
+  - name: controller_device
+    object_id: "device,1234"
+    profile: device
+  - name: occupancy_schedule
+    object_id: "schedule,2"
+    profile: schedule
+  - name: event_notification
+    object_id: "notification-class,1"
+    profile: notification_class
+  - name: holiday_calendar
+    object_id: "calendar,1"
+    profile: calendar
+  - name: supply_temperature_history
+    object_id: "trend-log,1"
+    profile: trend_log
+

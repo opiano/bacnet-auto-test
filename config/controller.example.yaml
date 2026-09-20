@@ -1,0 +1,43 @@
+# Copy this file to config/controller.yaml and replace every example value.
+# Keep this file free of site-specific IP addresses and credentials.
+network:
+  # Test PC BACnet/IP address with CIDR prefix.  Do not use the controller address.
+  local_address: "10.251.34.145/24"
+  local_device_instance: 900001
+  udp_port: 47808
+  timeout_seconds: 5
+
+controller:
+  address: "10.251.34.227:47808"
+  device_instance: 227
+  # Optional expectations: omit a field when firmware versions legitimately differ.
+  expected:
+    vendor_name: "Example Vendor"
+    model_name: "Example Controller"
+
+# A smoke test reads each listed property.  `expected` is optional.
+required_objects:
+  - name: supply_air_temperature
+    object_identifier: "analog-input,1"
+    property_identifier: "present-value"
+  - name: supply_air_temperature_units
+    object_identifier: "analog-input,1"
+    property_identifier: "units"
+    expected: "degreesCelsius"
+  - name: fan_status
+    object_identifier: "binary-input,1"
+    property_identifier: "present-value"
+
+# Writes are disabled unless both enabled is true and this object is configured.
+# Use only an object that cannot operate real plant equipment.
+safe_write:
+  enabled: false
+  object_identifier: "analog-output,1001"
+  property_identifier: "present-value"
+  value: 21.5
+  priority: 8
+  # Value expected after the write.  Omit if the controller deliberately transforms it.
+  expected_readback: 21.5
+  # Set true only if the controller accepts Null to release this priority.
+  relinquish_after_test: true
+
