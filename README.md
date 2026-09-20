@@ -11,14 +11,14 @@
    - AI, AO, AV, BI, BO, BV, MSI, MSO, MSV, IV, PIV, CSV, LAV, Device, Trend Log 등 다양한 프로파일 지원
    - 각 오브젝트의 `object-name`을 자동으로 읽어 직관적인 식별자 부여
 
-2. **속성(Property) 읽기 검증 (`property_read_test.py` / `property_read.py`)**
+2. **속성(Property) 읽기 검증 (`property_read.py`)**
    - 오브젝트별 표준 속성 및 Intrinsic Reporting(알람 관련) 속성 일괄 조회
    - BACnet 표준 규격에 맞춘 예외 처리:
      - `bo` (Binary Output): `alarm-value` 제외 (COMMAND_FAILURE 방식)
      - `trend_log`: `log-buffer` 제외 (ReadRange 전용 속성)
      - `event-message-texts` 제외
 
-3. **속성 쓰기 및 원복 검증 (`property_write_test.py`)**
+3. **속성 쓰기 및 원복 검증 (`property_write.py`)**
    - 대상 속성에 테스트 값을 쓰고, Readback을 통해 실제 적용 여부 검증 후 원래 값으로 **자동 원복(Restore)**
    - **Commandable 포인트 (AO, BO)**: Priority 8에 쓰기 후, 테스트 완료 시 `Null`로 우선순위 자동 해제(Relinquish)
    - **입력 포인트 (AI, BI) Present-Value 쓰기**: `write-access-denied` 발생 시 `out-of-service`를 `True`로 변경 후 쓰기 검증, 완료 후 다시 원래 상태(`False`)로 복구
@@ -41,9 +41,8 @@
 ```
 bacnet-auto-test/
 ├── generate_config.py          # 대상 컨트롤러 오브젝트 자동 탐색 및 YAML 설정 생성
-├── property_read_test.py       # 표준 속성 읽기 검증 스크립트
-├── property_read.py            # property_read_test.py 단축 별칭
-├── property_write_test.py      # 속성 쓰기, Readback 검증 및 안전 원복 스크립트
+├── property_read.py            # 표준 속성 읽기 검증 스크립트
+├── property_write.py           # 속성 쓰기, Readback 검증 및 안전 원복 스크립트
 ├── html_reporter.py            # JSON 결과를 인터랙티브 HTML 리포트로 변환
 ├── run_with_pcap.sh            # tcpdump 패킷 캡처 래퍼 스크립트
 ├── simple_bacnet_test.py       # 기본 BACnet 통신 점검 스크립트
@@ -106,15 +105,17 @@ python generate_config.py 192.168.219.130 --first-per-type
 
 ```bash
 # 속성 읽기 테스트 실행
-python property_read_test.py
-# (또는 축약 별칭: python property_read.py)
+python property_read.py
+
+# 옵션: 타입별 1개씩 빠른 샘플링 테스트
+python property_read.py --first-per-type
 
 # 다른 설정 파일 지정 시:
-python property_read_test.py --config config/property-read.yaml
+python property_read.py --config config/property-read.yaml
 ```
 
 * **출력 결과**:
-  * 콘솔: 각 속성별 `[PASSED]` / `[FAILED]` 및 현재 값 출력
+  * 콘솔: 각 속성별 `[PASSED]` / `[FAILED]` 및 현재 값 실시간 출력
   * JSON 리포트: `reports/property-read.json`
   * **HTML 리포트**: `reports/property-read.html`
 
@@ -126,19 +127,19 @@ python property_read_test.py --config config/property-read.yaml
 
 ```bash
 # 타입별 1개씩 샘플링 스모크 테스트 (빠른 확인 추천)
-python property_write_test.py --first-per-type
+python property_write.py --first-per-type
 
 # 전체 오브젝트 쓰기 테스트
-python property_write_test.py
+python property_write.py
 
 # 특정 오브젝트만 테스트
-python property_write_test.py --object-id analog-value,1
+python property_write.py --object-id analog-value,1
 
 # 특정 속성만 테스트
-python property_write_test.py --property high-limit
+python property_write.py --property high-limit
 
 # 드라이런 (실제 쓰기 요청 없이 테스트할 값 미리보기)
-python property_write_test.py --dry-run
+python property_write.py --dry-run
 ```
 
 * **주요 테스트 대상 속성**:
@@ -160,10 +161,10 @@ python property_write_test.py --dry-run
 
 ```bash
 # 속성 읽기 테스트 + 패킷 캡처
-./run_with_pcap.sh python property_read_test.py
+./run_with_pcap.sh python property_read.py --first-per-type
 
 # 속성 쓰기 테스트 + 패킷 캡처
-./run_with_pcap.sh python property_write_test.py --first-per-type
+./run_with_pcap.sh python property_write.py --first-per-type
 ```
 
 캡처가 완료되면 `reports/bacnet_YYYYMMDD_HHMMSS.pcap` 파일이 자동 생성됩니다.

@@ -3,8 +3,8 @@
 
 if [ $# -eq 0 ]; then
     echo "Usage: ./run_with_pcap.sh <test_command>"
-    echo "Example: ./run_with_pcap.sh python property_read_test.py --config config/property-read.yaml"
-    echo "Example: ./run_with_pcap.sh python property_write_test.py --first-per-type"
+    echo "Example: ./run_with_pcap.sh python property_read.py --config config/property-read.yaml"
+    echo "Example: ./run_with_pcap.sh python property_write.py --first-per-type"
     exit 1
 fi
 

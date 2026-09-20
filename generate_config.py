@@ -84,7 +84,7 @@ TYPE_INT_TO_NAME: dict[int, str] = {
     62: "audit-reporter",
 }
 
-# Supported profiles in property_read_test.py
+# Supported profiles in property_read.py
 PROFILE_MAP: dict[str, str] = {
     "analog-input": "ai",
     "analog-output": "ao",
@@ -531,7 +531,7 @@ async def run(args: argparse.Namespace) -> int:
             print(f"  - Skipped Unsupported Types ({skipped_count}): {skipped_summary}")
         print("=================================================================")
         print(f"\nYou can now run the property read test with:")
-        print(f"  python property_read_test.py --config {output_path}\n")
+        print(f"  python property_read.py --config {output_path}\n")
         return 0
 
     finally:
