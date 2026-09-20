@@ -102,7 +102,16 @@ def main() -> int:
     report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     for row in result["results"]:
         label = f"{row.get('object_id', 'setup')} / {row.get('property', '')}".rstrip(" / ")
-        print(f"[{row['status'].upper()}] {label}")
+        if "actual" in row:
+            actual = row["actual"]
+            val_str = json.dumps(actual, ensure_ascii=False) if isinstance(actual, (dict, list)) else str(actual)
+            if len(val_str) > 80:
+                print(f"[{row['status'].upper()}] {label}")
+                print(f"  value: {val_str}")
+            else:
+                print(f"[{row['status'].upper()}] {label} = {val_str}")
+        else:
+            print(f"[{row['status'].upper()}] {label}")
         if "error" in row:
             print(f"  error: {row['error']}")
     print(f"Report: {report} ({result['passed']} passed, {result['failed']} failed)")
