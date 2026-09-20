@@ -297,8 +297,8 @@ async def test_single_property(
         entry.update(status="dry_run", message=f"Would write: {test_val}")
         return entry
 
-    # Determine if priority should be applied (AO and BO present-value are commandable)
-    is_commandable = profile in ("ao", "bo") and prop == "present-value"
+    # Determine if priority should be applied (AO, BO, AV, BV, MSV, MSO present-value are commandable)
+    is_commandable = profile in ("ao", "bo", "av", "bv", "msv", "mso") and prop == "present-value"
     write_prio = priority if is_commandable else None
 
     oos_switched = False
@@ -394,10 +394,18 @@ async def test_single_property(
         if restore:
             if is_commandable:
                 # Relinquish priority back to Null
-                await asyncio.wait_for(
-                    app.write_property(target, obj_id, prop, "Null", array_index, write_prio),
-                    timeout=timeout,
-                )
+                try:
+                    await asyncio.wait_for(
+                        app.write_property(target, obj_id, prop, "Null", array_index, write_prio),
+                        timeout=timeout,
+                    )
+                except BaseException:
+                    # Fallback to writing original value with priority if Null relinquish is not accepted
+                    restore_val = orig_val if orig_val is not None else ""
+                    await asyncio.wait_for(
+                        app.write_property(target, obj_id, prop, str(restore_val), array_index, write_prio),
+                        timeout=timeout,
+                    )
             else:
                 restore_val = orig_val if orig_val is not None else ""
                 await asyncio.wait_for(
@@ -527,22 +535,30 @@ async def run_write_tests(args: argparse.Namespace) -> int:
                 label = f"{obj_id} / {prop_disp}"
                 status = result.get("status", "unknown").upper()
 
+                orig = result.get("original_value")
+                test_v = result.get("test_value")
+                readback = result.get("actual_readback")
+                rest_str = ", restored" if result.get("restored") else (
+                    f", restore_failed: {result.get('restore_error')}" if result.get("restore_error") else ""
+                )
+                oos_str = " [via out-of-service=True]" if result.get("out_of_service_used") else ""
+
                 if status == "WRITABLE":
-                    orig = result.get("original_value")
-                    test_v = result.get("test_value")
-                    rest_str = " (restored)" if result.get("restored") else ""
-                    oos_str = " [via out-of-service=True -> restored to False]" if result.get("out_of_service_used") else ""
-                    print(f"[{status}]  {label}{oos_str} (orig: {orig} -> test: {test_v}{rest_str})")
+                    print(f"[{status}]  {label}{oos_str} (orig: {orig} -> test: {test_v}, readback: {readback}{rest_str})")
+                elif status == "MISMATCH":
+                    err_msg = result.get("error") or "Readback mismatch"
+                    print(f"[{status}]  {label}{oos_str} (orig: {orig} -> test: {test_v}, readback: {readback}{rest_str}) -> {err_msg}")
                 elif status == "READ_ONLY":
                     print(f"[{status}] {label} ({result.get('message', 'read-only')})")
                 elif status == "NOT_SUPPORTED":
                     # Optionally hide or show compactly
                     print(f"[{status}] {label}")
                 elif status == "DRY_RUN":
-                    print(f"[{status}]   {label} -> would write: {result.get('test_value')}")
+                    print(f"[{status}]   {label} -> would write: {test_v}")
                 else:
                     err_msg = result.get("error") or result.get("message") or ""
-                    print(f"[{status}]    {label} -> {err_msg}")
+                    detail = f" (orig: {orig} -> test: {test_v}{rest_str})" if test_v is not None else ""
+                    print(f"[{status}]    {label}{detail} -> {err_msg}")
 
                 if args.delay > 0:
                     await asyncio.sleep(args.delay)
