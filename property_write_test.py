@@ -174,18 +174,24 @@ def values_match(actual: Any, expected: Any) -> bool:
     if actual is None or expected is None:
         return False
 
+    # Handle boolean comparisons (handles 1/0, True/False, "true"/"false")
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        b_act = bool(int(actual)) if isinstance(actual, (int, float)) and actual in (0, 1) else (
+            actual if isinstance(actual, bool) else str(actual).lower() in ("true", "1")
+        )
+        b_exp = bool(int(expected)) if isinstance(expected, (int, float)) and expected in (0, 1) else (
+            expected if isinstance(expected, bool) else str(expected).lower() in ("true", "1")
+        )
+        return b_act == b_exp
+
     # Handle numeric comparisons
-    if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+    if (isinstance(expected, (int, float)) and not isinstance(expected, bool)) or (
+        isinstance(actual, (int, float)) and not isinstance(actual, bool)
+    ):
         try:
             return math.isclose(float(actual), float(expected), rel_tol=1e-3, abs_tol=1e-3)
         except (TypeError, ValueError):
             pass
-
-    # Handle boolean comparisons
-    if isinstance(expected, bool):
-        if isinstance(actual, bool):
-            return actual == expected
-        return str(actual).lower() == str(expected).lower()
 
     # Handle binary string states
     s_act = str(actual).lower().strip()
@@ -193,6 +199,12 @@ def values_match(actual: Any, expected: Any) -> bool:
     if s_act in ("active", "1", "true") and s_exp in ("active", "1", "true"):
         return True
     if s_act in ("inactive", "0", "false") and s_exp in ("inactive", "0", "false"):
+        return True
+
+    # Handle enum / strings with hyphens vs camelCase (e.g. degrees-fahrenheit vs degreesFahrenheit)
+    s_act_clean = s_act.replace("-", "").replace("_", "")
+    s_exp_clean = s_exp.replace("-", "").replace("_", "")
+    if s_act_clean == s_exp_clean:
         return True
 
     # Handle lists (e.g. state-text)
@@ -231,7 +243,9 @@ async def test_single_property(
             raise RuntimeError(str(raw_orig))
         orig_val = to_json(raw_orig)
         entry["original_value"] = orig_val
-    except Exception as read_err:
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except BaseException as read_err:
         err_str = str(read_err)
         if "unknown-property" in err_str.lower():
             entry.update(status="not_supported", message="Property not supported by object")
@@ -257,9 +271,15 @@ async def test_single_property(
             app.write_property(target, obj_id, prop, str(test_val), None, write_prio),
             timeout=timeout,
         )
-    except Exception as write_err:
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except BaseException as write_err:
         err_str = str(write_err)
-        if "write-access-denied" in err_str.lower() or "read-only" in err_str.lower():
+        if (
+            "write-access-denied" in err_str.lower()
+            or "read-only" in err_str.lower()
+            or "not-for-writing" in err_str.lower()
+        ):
             entry.update(status="read_only", message="Write access denied (property is read-only)")
         else:
             entry.update(status="write_failed", error=f"{type(write_err).__name__}: {err_str}")
@@ -274,7 +294,9 @@ async def test_single_property(
         entry["status"] = "writable" if matched else "mismatch"
         if not matched:
             entry["error"] = f"Readback mismatch (expected: {test_val}, got: {actual_val})"
-    except Exception as readback_err:
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except BaseException as readback_err:
         entry.update(status="readback_failed", error=f"{type(readback_err).__name__}: {readback_err}")
 
     # Step 5: Restore original value
@@ -293,7 +315,9 @@ async def test_single_property(
                     timeout=timeout,
                 )
             entry["restored"] = True
-        except Exception as rest_err:
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except BaseException as rest_err:
             entry["restored"] = False
             entry["restore_error"] = str(rest_err)
 
