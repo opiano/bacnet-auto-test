@@ -117,8 +117,10 @@ def compute_test_value(prop: str, orig_val: Any, profile: str) -> Any:
 
     # 4. Binary Present-Value (bi, bo, bv)
     if profile in ("bi", "bo", "bv") and prop == "present-value":
-        s = str(orig_val).lower()
-        return "inactive" if "active" in s or s in ("1", "true") else "active"
+        s = str(orig_val).lower().strip()
+        if s in ("inactive", "0", "false"):
+            return "active"
+        return "inactive"
 
     # 5. Analog / Real / Float values (Limits, deadband, cov, analog PV)
     if prop in ("high-limit", "low-limit", "deadband", "cov-increment") or (
