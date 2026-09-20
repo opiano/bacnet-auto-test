@@ -15,6 +15,7 @@ import yaml
 from bacpypes3.apdu import ErrorRejectAbortNack
 from bacpypes3.app import Application
 from bacpypes3.argparse import SimpleArgumentParser
+from bacpypes3.primitivedata import Null
 
 # Properties to test for writeability across all objects
 COMMON_WRITE_PROPERTIES = ["object-name", "description"]
@@ -80,6 +81,8 @@ def to_json(value: Any) -> Any:
     """Convert BACpypes objects to JSON-serializable types."""
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
+    if isinstance(value, Null):
+        return None
     if isinstance(value, ErrorRejectAbortNack):
         return str(value)
     if hasattr(value, "get_value"):
@@ -396,16 +399,17 @@ async def test_single_property(
                 # Relinquish priority back to Null
                 try:
                     await asyncio.wait_for(
-                        app.write_property(target, obj_id, prop, "Null", array_index, write_prio),
+                        app.write_property(target, obj_id, prop, Null(), array_index, write_prio),
                         timeout=timeout,
                     )
-                except BaseException:
-                    # Fallback to writing original value with priority if Null relinquish is not accepted
+                except BaseException as rel_err:
+                    # Fallback: only if device rejects Null relinquish, write original value at write_prio
                     restore_val = orig_val if orig_val is not None else ""
                     await asyncio.wait_for(
                         app.write_property(target, obj_id, prop, str(restore_val), array_index, write_prio),
                         timeout=timeout,
                     )
+                    entry["relinquish_fallback_used"] = True
             else:
                 restore_val = orig_val if orig_val is not None else ""
                 await asyncio.wait_for(
