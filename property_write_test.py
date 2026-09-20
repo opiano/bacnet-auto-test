@@ -407,6 +407,11 @@ async def test_single_property(
 
 async def run_write_tests(args: argparse.Namespace) -> int:
     config_path = Path(args.config)
+    if not config_path.exists() and args.config == "config/property-read.yaml":
+        fallback = Path("config/mandatory-property-read.yaml")
+        if fallback.exists():
+            config_path = fallback
+
     if not config_path.exists():
         print(f"Error: Configuration file not found: {config_path}", file=sys.stderr)
         return 1
@@ -414,9 +419,11 @@ async def run_write_tests(args: argparse.Namespace) -> int:
     with config_path.open(encoding="utf-8") as stream:
         config = yaml.safe_load(stream) or {}
 
-    for k in ("device", "test_pc", "mandatory_objects"):
+    for k in ("device", "test_pc"):
         if k not in config:
             raise ValueError(f"Missing key in config: {k}")
+    if "objects" not in config and "mandatory_objects" not in config:
+        raise ValueError("Missing key in config: objects")
 
     pc = config["test_pc"]
     local_address = str(pc["address"])
@@ -427,7 +434,7 @@ async def run_write_tests(args: argparse.Namespace) -> int:
     target = str(config["device"]["address"])
 
     # Collect objects to test
-    objects = config["mandatory_objects"]
+    objects = config.get("objects") or config.get("mandatory_objects") or []
     if args.object_id:
         objects = [o for o in objects if o["object_id"] == args.object_id]
         if not objects:
@@ -562,8 +569,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--config", "-c",
-        default="config/mandatory-property-read.yaml",
-        help="Path to YAML configuration (default: config/mandatory-property-read.yaml)",
+        default="config/property-read.yaml",
+        help="Path to YAML configuration (default: config/property-read.yaml)",
     )
     parser.add_argument(
         "--report", "-r",

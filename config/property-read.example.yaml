@@ -8,8 +8,8 @@ test_pc:
   timeout_seconds: 5
 
 # Add only Object IDs that exist in the controller.
-# profile chooses the standard mandatory BACnet Property list for that Object type.
-mandatory_objects:
+# profile chooses the standard BACnet Property list for that Object type.
+objects:
   - name: supply_air_temperature
     object_id: "analog-input,1"
     profile: ai

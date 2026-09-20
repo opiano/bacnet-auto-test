@@ -11,7 +11,7 @@ test_pc:
 # Replace every Object ID with an Object instance that actually exists
 # in the target controller.  The profile selects its standard required
 # Property list; do not change it unless the Object type changes.
-mandatory_objects:
+objects:
   - name: analog_value_1
     object_id: "analog-value,1"       # Confirmed in the basic test example.
     profile: av

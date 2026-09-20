@@ -30,19 +30,20 @@ pytest -v --bacnet-config config/controller.yaml \
   --html=reports/bacnet-report.html
 ```
 
-## 필수 속성(Mandatory Property) 검증 테스트
+## 속성(Property) 읽기 검증 테스트
 
-대상 컨트롤러에 존재하는 Object들의 표준 필수 Property들을 일괄 검증합니다.
+대상 컨트롤러에 존재하는 Object들의 표준 Property들을 일괄 검증합니다.
 
 ```bash
 # 1. 대상 컨트롤러의 Object List를 자동 탐색하여 config 생성 (IP 지정)
-python generate_mandatory_config.py <CONTROLLER_IP>
+python generate_config.py <CONTROLLER_IP>
 
 # 옵션: 타입별 1개씩만 샘플링하여 빠르게 검증하고 싶을 때
-# python generate_mandatory_config.py <CONTROLLER_IP> --first-per-type
+# python generate_config.py <CONTROLLER_IP> --first-per-type
 
-# 2. 필수 속성 검증 실행
-python mandatory_property_read.py --config config/mandatory-property-read.yaml
+# 2. 속성 검증 실행
+python property_read_test.py --config config/property-read.yaml
+# (또는 별칭: python property_read.py)
 ```
 
 ## 속성 쓰기(Write) 및 원복(Restore) 검증 테스트
@@ -54,7 +55,7 @@ python mandatory_property_read.py --config config/mandatory-property-read.yaml
 python property_write_test.py --first-per-type
 
 # 전체 오브젝트 쓰기 테스트
-python property_write_test.py --config config/mandatory-property-read.yaml
+python property_write_test.py --config config/property-read.yaml
 
 # 특정 포인트만 테스트
 python property_write_test.py --object-id analog-value,1
@@ -66,7 +67,7 @@ python property_write_test.py --object-id analog-value,1
 
 ```bash
 # 실행할 명령어 앞에 ./run_with_pcap.sh 만 붙여주면 됩니다:
-./run_with_pcap.sh python mandatory_property_read.py --config config/mandatory-property-read.yaml
+./run_with_pcap.sh python property_read_test.py --config config/property-read.yaml
 ./run_with_pcap.sh python property_write_test.py --first-per-type
 ```
 

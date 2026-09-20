@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read the standard mandatory BACnet Properties for configured Object instances."""
+"""Read BACnet properties for configured object instances."""
 
 from __future__ import annotations
 
@@ -103,12 +103,13 @@ async def run(config: dict[str, Any]) -> dict[str, Any]:
     target = str(config["device"]["address"])
     args = SimpleArgumentParser().parse_args([
         "--address", local_address, "--instance", str(pc["device_instance"]),
-        "--name", "BACnet Mandatory Property Test PC",
+        "--name", "BACnet Property Test PC",
     ])
     app = Application.from_args(args)
     results: list[dict[str, Any]] = []
+    objects = config.get("objects") or config.get("mandatory_objects") or []
     try:
-        for obj in config["mandatory_objects"]:
+        for obj in objects:
             profile = obj["profile"]
             if profile not in REQUIRED:
                 raise ValueError(f"Unknown profile: {profile}. Use one of: {', '.join(REQUIRED)}")
@@ -129,15 +130,17 @@ async def run(config: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="config/mandatory-property-read.yaml")
-    parser.add_argument("--report", default="reports/mandatory-property-read.json")
+    parser.add_argument("--config", default="config/property-read.yaml")
+    parser.add_argument("--report", default="reports/property-read.json")
     args = parser.parse_args()
     try:
         with Path(args.config).open(encoding="utf-8") as stream:
             config = yaml.safe_load(stream) or {}
-        for key in ("device", "test_pc", "mandatory_objects"):
+        for key in ("device", "test_pc"):
             if key not in config:
                 raise ValueError(f"Missing required key: {key}")
+        if "objects" not in config and "mandatory_objects" not in config:
+            raise ValueError("Missing required key in config: objects")
         result = asyncio.run(run(config))
     except (Exception, ErrorRejectAbortNack) as error:
         result = {"timestamp_utc": datetime.now(timezone.utc).isoformat(), "total": 0, "passed": 0, "failed": 1, "results": [{"status": "failed", "error": f"{type(error).__name__}: {error}"}]}

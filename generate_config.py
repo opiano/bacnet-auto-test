@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Discover BACnet objects from a target device and generate config/mandatory-property-read.yaml."""
+"""Discover BACnet objects from a target device and generate config/property-read.yaml."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ TYPE_INT_TO_NAME: dict[int, str] = {
     62: "audit-reporter",
 }
 
-# Supported profiles in mandatory_property_read.py
+# Supported profiles in property_read_test.py
 PROFILE_MAP: dict[str, str] = {
     "analog-input": "ai",
     "analog-output": "ao",
@@ -352,7 +352,7 @@ def write_yaml_config(
     local_instance: int,
     local_port: int,
     timeout: float,
-    mandatory_objects: list[dict[str, Any]],
+    objects: list[dict[str, Any]],
 ) -> None:
     """Generate cleanly formatted YAML file with comments."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -360,10 +360,10 @@ def write_yaml_config(
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
         "# =====================================================================",
-        "# BACnet/IP Mandatory Property Read Configuration",
+        "# BACnet/IP Property Read Configuration",
         f"# Auto-generated: {timestamp}",
         f"# Target Controller: {target_address}",
-        f"# Total Configured Objects: {len(mandatory_objects)}",
+        f"# Total Configured Objects: {len(objects)}",
         "# =====================================================================",
         "",
         "device:",
@@ -375,11 +375,11 @@ def write_yaml_config(
         f"  udp_port: {local_port}",
         f"  timeout_seconds: {int(timeout) if timeout.is_integer() else timeout}",
         "",
-        "# List of objects to verify standard mandatory properties against.",
-        "mandatory_objects:",
+        "# List of objects to verify standard properties against.",
+        "objects:",
     ]
 
-    for obj in mandatory_objects:
+    for obj in objects:
         clean_name = str(obj["name"]).replace('"', '\\"')
         lines.append(f'  - name: "{clean_name}"')
         lines.append(f'    object_id: "{obj["object_id"]}"')
@@ -393,7 +393,7 @@ async def run(args: argparse.Namespace) -> int:
     target_arg = args.target_flag or args.target
     if not target_arg:
         print("Error: Target device IP address is required.", file=sys.stderr)
-        print("Usage: python generate_mandatory_config.py <DEVICE_IP> [options]", file=sys.stderr)
+        print("Usage: python generate_config.py <DEVICE_IP> [options]", file=sys.stderr)
         return 1
 
     # Normalize target address
@@ -491,15 +491,16 @@ async def run(args: argparse.Namespace) -> int:
             print(f"[*] Filtered to first object per profile: {len(parsed_objects)} objects selected")
 
         # Step 4: Resolve object names
+        # Step 4: Resolve object names
         print(f"[*] Reading names for {len(parsed_objects)} objects...")
-        mandatory_objects: list[dict[str, Any]] = []
+        objects: list[dict[str, Any]] = []
         for idx, obj in enumerate(parsed_objects, 1):
             name = None
             if not args.skip_names:
                 name = await fetch_object_name(app, target_address, obj["object_id"])
             if not name:
                 name = f"{obj['kebab_type'].replace('-', '_')}_{obj['instance']}"
-            mandatory_objects.append({
+            objects.append({
                 "name": name,
                 "object_id": obj["object_id"],
                 "profile": obj["profile"],
@@ -516,7 +517,7 @@ async def run(args: argparse.Namespace) -> int:
             local_instance=args.local_instance,
             local_port=local_port,
             timeout=args.timeout,
-            mandatory_objects=mandatory_objects,
+            objects=objects,
         )
 
         print("\n=================================================================")
@@ -524,13 +525,13 @@ async def run(args: argparse.Namespace) -> int:
         print(f"  - Target Address: {target_address}")
         print(f"  - Device Instance: {device_instance}")
         print(f"  - Local Test Address: {local_address} (port: {local_port})")
-        print(f"  - Total Configured Objects: {len(mandatory_objects)}")
+        print(f"  - Total Configured Objects: {len(objects)}")
         if skipped_types:
             skipped_summary = ", ".join(f"{t}: {c}" for t, c in sorted(skipped_types.items()))
             print(f"  - Skipped Unsupported Types ({skipped_count}): {skipped_summary}")
         print("=================================================================")
-        print(f"\nYou can now run the mandatory property test with:")
-        print(f"  python mandatory_property_read.py --config {output_path}\n")
+        print(f"\nYou can now run the property read test with:")
+        print(f"  python property_read_test.py --config {output_path}\n")
         return 0
 
     finally:
@@ -539,7 +540,7 @@ async def run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Discover BACnet objects from a target device and generate config/mandatory-property-read.yaml"
+        description="Discover BACnet objects from a target device and generate config/property-read.yaml"
     )
     parser.add_argument(
         "target",
@@ -584,8 +585,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--output", "-o",
-        default="config/mandatory-property-read.yaml",
-        help="Output YAML file path (default: config/mandatory-property-read.yaml)",
+        default="config/property-read.yaml",
+        help="Output YAML file path (default: config/property-read.yaml)",
     )
     parser.add_argument(
         "--first-per-type",
