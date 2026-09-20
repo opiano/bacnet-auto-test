@@ -105,6 +105,37 @@ def to_json(value: Any) -> Any:
     return str(value)
 
 
+async def send_object_marker(
+    app: Application,
+    target: str,
+    obj_id: str,
+    obj_name: str,
+    local_instance: int,
+    index: int = 0,
+    total: int = 0,
+) -> None:
+    """Send an UnconfirmedTextMessageRequest as an object delimiter marker for Wireshark."""
+    try:
+        from bacpypes3.apdu import UnconfirmedTextMessageRequest
+        from bacpypes3.basetypes import UnconfirmedTextMessageRequestMessagePriority
+        from bacpypes3.pdu import Address
+        from bacpypes3.primitivedata import CharacterString, ObjectIdentifier
+
+        msg_str = f"=== [{index}/{total}] Object: {obj_id} ({obj_name}) ===" if total else f"=== Object: {obj_id} ({obj_name}) ==="
+        src_dev = getattr(app.device_object, "objectIdentifier", None) or ObjectIdentifier(("device", int(local_instance)))
+
+        req = UnconfirmedTextMessageRequest(
+            textMessageSourceDevice=src_dev,
+            messagePriority=UnconfirmedTextMessageRequestMessagePriority.normal,
+            message=CharacterString(msg_str),
+        )
+        req.pduDestination = Address(target)
+        app.request(req)
+        await asyncio.sleep(0.02)
+    except Exception:
+        pass
+
+
 async def run_read_tests(args: argparse.Namespace) -> int:
     config_path = Path(args.config)
     if not config_path.exists():
@@ -159,11 +190,25 @@ async def run_read_tests(args: argparse.Namespace) -> int:
     results: list[dict[str, Any]] = []
 
     try:
-        for obj in objects:
+        for obj_idx, obj in enumerate(objects, 1):
             profile = obj["profile"]
             if profile not in REQUIRED:
                 print(f"[WARNING] Unknown profile: '{profile}' for {obj['object_id']}, skipping.", file=sys.stderr)
                 continue
+
+            obj_id = obj["object_id"]
+            obj_name = obj.get("name", obj_id)
+
+            # Send UnconfirmedTextMessage marker packet for Wireshark analysis
+            await send_object_marker(
+                app=app,
+                target=target,
+                obj_id=obj_id,
+                obj_name=obj_name,
+                local_instance=int(pc.get("device_instance", 900001)),
+                index=obj_idx,
+                total=len(objects),
+            )
 
             props_for_obj = [*COMMON, *REQUIRED[profile]]
             if args.property_name:
@@ -176,8 +221,6 @@ async def run_read_tests(args: argparse.Namespace) -> int:
                 if profile in ("trend_log", "tl") and prop == "log-buffer":
                     continue
 
-                obj_id = obj["object_id"]
-                obj_name = obj.get("name", obj_id)
                 label = f"{obj_id} / {prop}"
 
                 entry: dict[str, Any] = {
