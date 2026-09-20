@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -104,90 +105,196 @@ def to_json(value: Any) -> Any:
     return str(value)
 
 
-async def run(config: dict[str, Any]) -> dict[str, Any]:
+async def run_read_tests(args: argparse.Namespace) -> int:
+    config_path = Path(args.config)
+    # Automatic fallback if property-read.yaml is missing but mandatory-property-read.yaml exists
+    if not config_path.exists() and args.config == "config/property-read.yaml":
+        fallback = Path("config/mandatory-property-read.yaml")
+        if fallback.exists():
+            config_path = fallback
+
+    if not config_path.exists():
+        print(f"Error: Configuration file not found: {config_path}", file=sys.stderr)
+        return 1
+
+    with config_path.open(encoding="utf-8") as stream:
+        config = yaml.safe_load(stream) or {}
+
+    for key in ("device", "test_pc"):
+        if key not in config:
+            raise ValueError(f"Missing required key in config: {key}")
+    if "objects" not in config and "mandatory_objects" not in config:
+        raise ValueError("Missing required key in config: objects")
+
     pc = config["test_pc"]
     local_address = str(pc["address"])
-    if int(pc.get("udp_port", 47808)) != 47808:
-        local_address = f"{local_address}:{int(pc['udp_port'])}"
+    udp_port = int(pc.get("udp_port", 47808))
+    if udp_port != 47808 and ":" not in local_address:
+        local_address = f"{local_address}:{udp_port}"
     timeout = float(pc.get("timeout_seconds", 5))
     target = str(config["device"]["address"])
-    args = SimpleArgumentParser().parse_args([
-        "--address", local_address, "--instance", str(pc["device_instance"]),
-        "--name", "BACnet Property Test PC",
+
+    # Collect objects
+    all_objects = config.get("objects") or config.get("mandatory_objects") or []
+    objects = all_objects
+
+    if args.object_id:
+        objects = [o for o in objects if o["object_id"] == args.object_id]
+        if not objects:
+            print(f"Error: Specified object-id '{args.object_id}' not found in configuration.", file=sys.stderr)
+            return 1
+
+    if args.first_per_type:
+        seen = set()
+        filtered = []
+        for o in objects:
+            if o["profile"] not in seen:
+                seen.add(o["profile"])
+                filtered.append(o)
+        objects = filtered
+
+    print(f"[*] Target Device: {target}")
+    print(f"[*] Local PC: {local_address} (instance: {pc['device_instance']})")
+    print(f"[*] Objects to test: {len(objects)}")
+
+    app_args = SimpleArgumentParser().parse_args([
+        "--address", local_address,
+        "--instance", str(pc["device_instance"]),
+        "--name", "BACnet Property Read Test PC",
     ])
-    app = Application.from_args(args)
+    app = Application.from_args(app_args)
+
     results: list[dict[str, Any]] = []
-    objects = config.get("objects") or config.get("mandatory_objects") or []
+
     try:
         for obj in objects:
             profile = obj["profile"]
             if profile not in REQUIRED:
-                raise ValueError(f"Unknown profile: {profile}. Use one of: {', '.join(REQUIRED)}")
-            for prop in [*COMMON, *REQUIRED[profile]]:
+                print(f"[WARNING] Unknown profile: '{profile}' for {obj['object_id']}, skipping.", file=sys.stderr)
+                continue
+
+            props_for_obj = [*COMMON, *REQUIRED[profile]]
+            if args.property_name:
+                props_for_obj = [p for p in props_for_obj if p == args.property_name]
+
+            for prop in props_for_obj:
+                # Exclude properties per requirement
                 if profile == "bo" and prop == "alarm-value":
                     continue
                 if profile in ("trend_log", "tl") and prop == "log-buffer":
                     continue
-                entry = {"object_name": obj.get("name", obj["object_id"]), "object_id": obj["object_id"], "profile": profile, "property": prop}
+
+                obj_id = obj["object_id"]
+                obj_name = obj.get("name", obj_id)
+                label = f"{obj_id} / {prop}"
+
+                entry: dict[str, Any] = {
+                    "object_name": obj_name,
+                    "object_id": obj_id,
+                    "profile": profile,
+                    "property": prop,
+                }
+
                 try:
-                    value = await asyncio.wait_for(app.read_property(target, obj["object_id"], prop), timeout=timeout)
-                    if isinstance(value, ErrorRejectAbortNack):
-                        raise RuntimeError(str(value))
-                    entry.update(status="passed", actual=to_json(value))
-                except (Exception, ErrorRejectAbortNack) as error:
-                    entry.update(status="failed", error=f"{type(error).__name__}: {error}")
+                    raw_val = await asyncio.wait_for(app.read_property(target, obj_id, prop), timeout=timeout)
+                    if isinstance(raw_val, ErrorRejectAbortNack):
+                        raise RuntimeError(str(raw_val))
+                    val_json = to_json(raw_val)
+                    entry.update(status="passed", actual=val_json)
+
+                    # Real-time console output
+                    val_str = json.dumps(val_json, ensure_ascii=False) if isinstance(val_json, (dict, list)) else str(val_json)
+                    if len(val_str) > 70:
+                        print(f"[PASSED]  {label}")
+                        print(f"  value: {val_str}")
+                    else:
+                        print(f"[PASSED]  {label} = {val_str}")
+
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except BaseException as error:
+                    err_str = str(error)
+                    entry.update(status="failed", error=f"{type(error).__name__}: {err_str}")
+                    print(f"[FAILED]    {label} -> {type(error).__name__}: {err_str}")
+
                 results.append(entry)
+
+    except KeyboardInterrupt:
+        print("\n[!] Read test interrupted by user (Ctrl+C). Saving partial results...", file=sys.stderr)
     finally:
         app.close()
-    return {"timestamp_utc": datetime.now(timezone.utc).isoformat(), "target_address": target, "total": len(results), "passed": sum(row["status"] == "passed" for row in results), "failed": sum(row["status"] == "failed" for row in results), "results": results}
+
+        # Always save JSON and HTML reports even if interrupted
+        passed_count = sum(r.get("status") == "passed" for r in results)
+        failed_count = sum(r.get("status") == "failed" for r in results)
+
+        report_data = {
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "target_address": target,
+            "total": len(results),
+            "passed": passed_count,
+            "failed": failed_count,
+            "results": results,
+        }
+
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        html_path = Path(args.html) if args.html else report_path.with_suffix(".html")
+        try:
+            from html_reporter import generate_html_report
+            generate_html_report(report_data, html_path, report_type="read")
+        except Exception as html_err:
+            print(f"Warning: Failed to generate HTML report: {html_err}", file=sys.stderr)
+
+        print("\n=================================================================")
+        print(f"Read Test Finished. Results:")
+        print(f"  - Total Tested: {len(results)}")
+        print(f"  - Passed: {passed_count}")
+        print(f"  - Failed: {failed_count}")
+        print(f"Report JSON saved to: {report_path.resolve()}")
+        print(f"Report HTML saved to: {html_path.resolve()}")
+        print("=================================================================\n")
+
+    return 0 if failed_count == 0 else 1
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="config/property-read.yaml")
-    parser.add_argument("--report", default="reports/property-read.json")
-    parser.add_argument("--html", default=None, help="Path to output HTML report (default: same name as --report with .html)")
+    parser.add_argument(
+        "--config", "-c",
+        default="config/property-read.yaml",
+        help="Path to YAML configuration (default: config/property-read.yaml)",
+    )
+    parser.add_argument(
+        "--report", "-r",
+        default="reports/property-read.json",
+        help="Path to output JSON report (default: reports/property-read.json)",
+    )
+    parser.add_argument(
+        "--html",
+        default=None,
+        help="Path to output HTML report (default: same name as --report with .html)",
+    )
+    parser.add_argument(
+        "--first-per-type",
+        action="store_true",
+        help="Test only 1 object per profile type for quick sampling",
+    )
+    parser.add_argument(
+        "--object-id", "-o",
+        default=None,
+        help="Test a single object ID only (e.g. analog-value,1)",
+    )
+    parser.add_argument(
+        "--property", "-p",
+        dest="property_name",
+        default=None,
+        help="Test a single property only (e.g. present-value)",
+    )
     args = parser.parse_args()
-    try:
-        with Path(args.config).open(encoding="utf-8") as stream:
-            config = yaml.safe_load(stream) or {}
-        for key in ("device", "test_pc"):
-            if key not in config:
-                raise ValueError(f"Missing required key: {key}")
-        if "objects" not in config and "mandatory_objects" not in config:
-            raise ValueError("Missing required key in config: objects")
-        result = asyncio.run(run(config))
-    except (Exception, ErrorRejectAbortNack) as error:
-        result = {"timestamp_utc": datetime.now(timezone.utc).isoformat(), "total": 0, "passed": 0, "failed": 1, "results": [{"status": "failed", "error": f"{type(error).__name__}: {error}"}]}
-    report = Path(args.report)
-    report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    # Generate HTML report
-    html_path = Path(args.html) if args.html else report.with_suffix(".html")
-    try:
-        from html_reporter import generate_html_report
-        generate_html_report(result, html_path, report_type="read")
-    except Exception as html_err:
-        print(f"Warning: Failed to generate HTML report: {html_err}", file=sys.stderr)
-
-    for row in result["results"]:
-        label = f"{row.get('object_id', 'setup')} / {row.get('property', '')}".rstrip(" / ")
-        if "actual" in row:
-            actual = row["actual"]
-            val_str = json.dumps(actual, ensure_ascii=False) if isinstance(actual, (dict, list)) else str(actual)
-            if len(val_str) > 80:
-                print(f"[{row['status'].upper()}] {label}")
-                print(f"  value: {val_str}")
-            else:
-                print(f"[{row['status'].upper()}] {label} = {val_str}")
-        else:
-            print(f"[{row['status'].upper()}] {label}")
-        if "error" in row:
-            print(f"  error: {row['error']}")
-    print(f"\nReport JSON: {report}")
-    print(f"Report HTML: {html_path} ({result['passed']} passed, {result['failed']} failed)\n")
-    return 0 if result["failed"] == 0 else 1
+    return asyncio.run(run_read_tests(args))
 
 
 if __name__ == "__main__":
