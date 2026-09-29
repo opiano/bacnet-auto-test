@@ -8,11 +8,14 @@
 
 1. **오브젝트 자동 탐색 및 설정 생성 (`generate_config.py`)**
    - 대상 컨트롤러의 `object-list`를 자동 탐색하여 테스트 대상 YAML 설정 파일 생성
-   - AI, AO, AV, BI, BO, BV, MSI, MSO, MSV, IV, PIV, CSV, LAV, Device, Trend Log 등 다양한 프로파일 지원
+   - AI, AO, AV, BI, BO, BV, MSI, MSO, MSV, IV, PIV, CSV, LAV, Device, Trend Log 지원
+   - **자체 정의 커스텀 오브젝트 지원**: `tot`(223), `egc`(226), `cgc`(227), `fbd`(246) 기본 내장 및 `--custom-type` CLI 인자로 추가 등록 가능
    - 각 오브젝트의 `object-name`을 자동으로 읽어 직관적인 식별자 부여
 
 2. **속성(Property) 읽기 검증 (`property_read.py`)**
    - 오브젝트별 표준 속성 및 Intrinsic Reporting(알람 관련) 속성 일괄 조회
+   - **커스텀 오브젝트 프로파일 지원**: `tot`, `egc`, `cgc`, `fbd` 오브젝트의 기본 공통 속성(`object-identifier`, `object-name`, `object-type`, `property-list`, `description`) 및 `present-value` 자동 검증
+   - **요청-응답 소요 시간(Latency) 실시간 측정 및 표시**: 각 속성 읽기 요청부터 응답까지 걸린 시간(`ms`)을 콘솔 및 리포트에 기록
    - BACnet 표준 규격에 맞춘 예외 처리:
      - `bo` (Binary Output): `alarm-value` 제외 (COMMAND_FAILURE 방식)
      - `trend_log`: `log-buffer` 제외 (ReadRange 전용 속성)
@@ -21,6 +24,7 @@
 
 3. **속성 쓰기 및 원복 검증 (`property_write.py`)**
    - 대상 속성에 테스트 값을 쓰고, Readback을 통해 실제 적용 여부 검증 후 원래 값으로 **안전 원복(Restore)**
+   - **요청-응답 소요 시간(Latency) 측정**: 쓰기 요청 및 Readback 검증 요청의 왕복 시간(`write_elapsed_ms`, `readback_elapsed_ms`)을 실시간 측정 및 표시
    - **Commandable 포인트 (AO, BO, AV, BV, MSV, MSO)**: Priority 8로 쓰기 검증 후, 원복 시 원래 값(`original_value`)을 우선순위 8에 다시 기록하여 안전하게 복원
    - **복원 후 실제 값 재검증 (Post-Restore Readback)**: 복원 명령 전송 후 컨트롤러에서 실제로 원래 값으로 복귀했는지 추가 Readback 검증
    - **입력 포인트 (AI, BI) Present-Value 쓰기**: `write-access-denied` 발생 시 `out-of-service`를 `True`로 변경 후 쓰기 검증, 완료 후 다시 원래 상태(`False`)로 복구
@@ -31,6 +35,7 @@
 
 4. **인터랙티브 HTML 리포트 생성 (`html_reporter.py`)**
    - 테스트 실행 시 JSON 리포트와 함께 브라우저에서 바로 볼 수 있는 단독 HTML 파일 자동 생성
+   - **응답 시간(Response Time) 항목 지원**: 각 속성별 응답 소요 시간 컬럼 및 상단 평균/최소/최대 응답 시간 KPI 요약 카드 제공
    - 상단 KPI 요약 카드, 성공률 프로그레스 바, 실시간 검색창, 상태 필터 버튼(`All`, `Passed/Writable`, `Failed`), 프로파일 필터 제공
    - 외부 인터넷/CDN 연결 없이 100% 오프라인 동작 (`file://` 직접 열기 가능)
 
@@ -119,9 +124,9 @@ python property_read.py --config config/property-read.yaml
 ```
 
 * **출력 결과**:
-  * 콘솔: 각 속성별 `[PASSED]` / `[FAILED]` 및 현재 값 실시간 출력
-  * JSON 리포트: `reports/property-read.json`
-  * **HTML 리포트**: `reports/property-read.html`
+  * 콘솔: 각 속성별 `[PASSED]` / `[FAILED]`, 현재 값 및 **응답 시간(`ms`)** 실시간 출력
+  * JSON 리포트: `reports/property-read.json` (각 항목별 `elapsed_ms` 및 전체 평균/최소/최대 요약 포함)
+  * **HTML 리포트**: `reports/property-read.html` (응답 시간 컬럼 및 상단 평균 응답 시간 KPI 카드 포함)
 
 ---
 
@@ -154,16 +159,19 @@ python property_write.py --dry-run
 
 * **출력 결과 (콘솔)**:
   ```text
-  # 정상 쓰기 및 복원 검증 성공
-  [WRITABLE]  binary-output,1 / present-value (orig: inactive | test: active -> verified: active | restored: inactive)
-  [WRITABLE]  analog-value,1 / present-value (orig: 21.5 | test: 22.5 -> verified: 22.5 | restored: 21.5)
-  [WRITABLE]  analog-input,1 / present-value [via out-of-service=True] (orig: 24.2 | test: 25.2 -> verified: 25.2 | restored: 24.2)
+  # 정상 쓰기 및 복원 검증 성공 (쓰기 응답 시간 및 Readback 검증 시간 표시)
+  [WRITABLE]  binary-output,1 / present-value (orig: inactive | test: active -> verified: active | restored: inactive) (12.3ms / rb: 9.8ms)
+  [WRITABLE]  analog-value,1 / present-value (orig: 21.5 | test: 22.5 -> verified: 22.5 | restored: 21.5) (14.1ms / rb: 10.2ms)
+  [WRITABLE]  analog-input,1 / present-value [via out-of-service=True] (orig: 24.2 | test: 25.2 -> verified: 25.2 | restored: 24.2) (15.0ms / rb: 11.4ms)
+
+  # 읽기 전용 포인트
+  [READ_ONLY] analog-value,1 / description (Write access denied) (11.8ms)
 
   # 쓰기 미반영 오류 발생 시
-  [MISMATCH]  analog-value,2 / present-value (orig: 21.5 | test: 22.5 -> readback: 21.5 | restored: 21.5) -> Readback mismatch (expected: 22.5, got: 21.5)
+  [MISMATCH]  analog-value,2 / present-value (orig: 21.5 | test: 22.5 -> readback: 21.5 | restored: 21.5) (13.5ms / rb: 10.1ms) -> Readback mismatch (expected: 22.5, got: 21.5)
   ```
-  * JSON 리포트: `reports/property-write-result.json`
-  * **HTML 리포트**: `reports/property-write-result.html`
+  * JSON 리포트: `reports/property-write-result.json` (`write_elapsed_ms`, `readback_elapsed_ms`, `read_elapsed_ms`, `elapsed_ms`)
+  * **HTML 리포트**: `reports/property-write-result.html` (Response Time 컬럼 및 평균 응답 시간 요약 카드)
 
 ---
 

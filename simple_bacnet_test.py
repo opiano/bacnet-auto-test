@@ -8,6 +8,7 @@ import asyncio
 import json
 import math
 import socket
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -138,23 +139,36 @@ async def run(settings: dict[str, Any]) -> dict[str, Any]:
     try:
         for item in settings["reads"]:
             entry = {"kind": "read", "name": item.get("name", item["object_id"]), **item}
+            t0 = time.perf_counter()
             try:
                 entry["actual"] = json_value(await read_property(app, target, item["object_id"], item["property"], timeout))
+                entry["elapsed_ms"] = round((time.perf_counter() - t0) * 1000, 2)
                 entry["status"] = "passed"
             except Exception as error:
+                entry["elapsed_ms"] = round((time.perf_counter() - t0) * 1000, 2)
                 entry.update(status="failed", error=f"{type(error).__name__}: {error}")
             results.append(entry)
         for item in settings["writes"]:
             entry = {"kind": "write_readback", "name": item.get("name", item["object_id"]), **item}
+            t0 = time.perf_counter()
             try:
                 await write_property(app, target, item, timeout)
+                write_ms = round((time.perf_counter() - t0) * 1000, 2)
+                entry["write_elapsed_ms"] = write_ms
+
+                t1 = time.perf_counter()
                 actual = await read_property(app, target, item["object_id"], item["property"], timeout)
+                read_ms = round((time.perf_counter() - t1) * 1000, 2)
+                entry["readback_elapsed_ms"] = read_ms
+                entry["elapsed_ms"] = write_ms
+
                 expected = item.get("expected", item["value"])
                 entry.update(actual=json_value(actual), expected=json_value(expected))
                 entry["status"] = "passed" if values_equal(actual, expected) else "failed"
                 if entry["status"] == "failed":
                     entry["error"] = "Readback value does not match expected value"
             except Exception as error:
+                entry["elapsed_ms"] = round((time.perf_counter() - t0) * 1000, 2)
                 entry.update(status="failed", error=f"{type(error).__name__}: {error}")
             results.append(entry)
     finally:
@@ -183,7 +197,8 @@ def main() -> int:
         object_id = item.get("object_id")
         property_id = item.get("property")
         target = f" ({object_id} / {property_id})" if object_id and property_id else ""
-        print(f"[{item['status'].upper()}] {item.get('name', 'setup')}{target}")
+        time_info = f" ({item['elapsed_ms']}ms)" if "elapsed_ms" in item else ""
+        print(f"[{item['status'].upper()}] {item.get('name', 'setup')}{target}{time_info}")
         if "actual" in item:
             print(f"  value: {item['actual']}")
         if "error" in item:

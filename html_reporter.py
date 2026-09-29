@@ -71,6 +71,20 @@ def render_html(data: dict[str, Any], report_type: str | None = None) -> str:
     readonly_pct = round((readonly_count / total * 100), 1) if total > 0 else 0
     notsupp_pct = round((notsupp_count / total * 100), 1) if total > 0 else 0
 
+    # Calculate response time stats
+    timing_vals: list[float] = []
+    for r in results:
+        t = r.get("write_elapsed_ms") if is_write else r.get("elapsed_ms")
+        if t is None:
+            t = r.get("elapsed_ms")
+        if t is not None and isinstance(t, (int, float)):
+            timing_vals.append(float(t))
+
+    has_timing = len(timing_vals) > 0
+    avg_latency = round(sum(timing_vals) / len(timing_vals), 1) if has_timing else None
+    min_latency = round(min(timing_vals), 1) if has_timing else None
+    max_latency = round(max(timing_vals), 1) if has_timing else None
+
     # Build unique profiles for filter dropdown
     profiles = sorted({r.get("profile", "") for r in results if r.get("profile")})
 
@@ -109,6 +123,24 @@ def render_html(data: dict[str, Any], report_type: str | None = None) -> str:
             test_val = format_val(r.get("test_value"))
             act_val = format_val(r.get("actual_readback"))
 
+            # Format Response Time
+            w_ms = r.get("write_elapsed_ms")
+            rb_ms = r.get("readback_elapsed_ms")
+            r_ms = r.get("read_elapsed_ms")
+            el_ms = r.get("elapsed_ms")
+
+            if w_ms is not None:
+                if rb_ms is not None:
+                    time_html = f'<div class="time-cell" title="Write: {w_ms:.1f}ms, Readback: {rb_ms:.1f}ms"><span class="badge-time">W: {w_ms:.1f}ms</span><span class="time-sub">RB: {rb_ms:.1f}ms</span></div>'
+                else:
+                    time_html = f'<span class="badge-time">W: {w_ms:.1f}ms</span>'
+            elif r_ms is not None:
+                time_html = f'<span class="time-sub">R: {r_ms:.1f}ms</span>'
+            elif el_ms is not None:
+                time_html = f'<span class="badge-time">{el_ms:.1f} ms</span>'
+            else:
+                time_html = '<span class="text-muted">-</span>'
+
             restored = r.get("restored")
             restored_val = r.get("restored_value")
             restore_verified = r.get("restore_verified")
@@ -142,11 +174,18 @@ def render_html(data: dict[str, Any], report_type: str | None = None) -> str:
   <td>{orig_val}</td>
   <td>{test_val}</td>
   <td>{act_val}</td>
+  <td>{time_html}</td>
   <td class="text-center">{restore_badge}</td>
   <td class="col-details">{details_html}</td>
 </tr>"""
         else:
             act_val = format_val(r.get("actual"))
+            el_ms = r.get("elapsed_ms")
+            if el_ms is not None:
+                time_html = f'<span class="badge-time">{el_ms:.1f} ms</span>'
+            else:
+                time_html = '<span class="text-muted">-</span>'
+
             err = r.get("error")
             err_html = f'<span class="text-danger" title="{html.escape(str(err))}">{html.escape(str(err))}</span>' if err else '<span class="text-muted">-</span>'
 
@@ -158,6 +197,7 @@ def render_html(data: dict[str, Any], report_type: str | None = None) -> str:
   <td><span class="badge-profile">{profile}</span></td>
   <td class="font-mono font-bold">{prop_display}</td>
   <td class="col-value">{act_val}</td>
+  <td>{time_html}</td>
   <td class="col-details">{err_html}</td>
 </tr>"""
         rows_html.append(row)
@@ -169,14 +209,15 @@ def render_html(data: dict[str, Any], report_type: str | None = None) -> str:
         thead_html = """<tr>
   <th style="width: 50px;">#</th>
   <th style="width: 120px;">Status</th>
-  <th style="width: 160px;">Object ID</th>
-  <th style="width: 160px;">Object Name</th>
-  <th style="width: 80px;">Profile</th>
+  <th style="width: 150px;">Object ID</th>
+  <th style="width: 150px;">Object Name</th>
+  <th style="width: 70px;">Profile</th>
   <th style="width: 150px;">Property</th>
   <th>Original Val</th>
   <th>Test Val</th>
   <th>Readback Val</th>
-  <th style="width: 100px; text-align: center;">Restored</th>
+  <th style="width: 110px;">Response Time</th>
+  <th style="width: 90px; text-align: center;">Restored</th>
   <th>Details / Note</th>
 </tr>"""
     else:
@@ -184,10 +225,11 @@ def render_html(data: dict[str, Any], report_type: str | None = None) -> str:
   <th style="width: 50px;">#</th>
   <th style="width: 120px;">Status</th>
   <th style="width: 160px;">Object ID</th>
-  <th style="width: 180px;">Object Name</th>
-  <th style="width: 80px;">Profile</th>
-  <th style="width: 180px;">Property</th>
+  <th style="width: 170px;">Object Name</th>
+  <th style="width: 75px;">Profile</th>
+  <th style="width: 170px;">Property</th>
   <th>Read Value</th>
+  <th style="width: 120px;">Response Time</th>
   <th>Error Details</th>
 </tr>"""
 
@@ -268,6 +310,15 @@ def render_html(data: dict[str, Any], report_type: str | None = None) -> str:
       <div class="card-label">Not Supported</div>
       <div class="card-value">{notsupp_count:,}</div>
       <div class="card-sub">{notsupp_pct}% omitted</div>
+    </div>
+    """
+
+    if has_timing:
+        cards_html += f"""
+    <div class="card card-neutral">
+      <div class="card-label">Avg Response Time</div>
+      <div class="card-value">{avg_latency} <span style="font-size: 15px; font-weight: 500; color: var(--text-secondary);">ms</span></div>
+      <div class="card-sub">Min: {min_latency}ms &bull; Max: {max_latency}ms</div>
     </div>
     """
 
@@ -699,6 +750,34 @@ def render_html(data: dict[str, Any], report_type: str | None = None) -> str:
       font-size: 11px;
     }}
 
+    .badge-time {{
+      display: inline-block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      background: rgba(56, 189, 248, 0.12);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }}
+
+    .time-cell {{
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      white-space: nowrap;
+    }}
+
+    .time-sub {{
+      display: inline-block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: var(--text-muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }}
+
     /* Utility */
     .font-mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }}
     .font-bold {{ font-weight: 600; color: #f1f5f9; }}
@@ -749,6 +828,7 @@ def render_html(data: dict[str, Any], report_type: str | None = None) -> str:
           <span class="meta-tag">Target: <strong>{html.escape(target)}</strong></span>
           <span class="meta-tag">Generated: <strong>{html.escape(timestamp)}</strong></span>
           <span class="meta-tag">Total Items: <strong>{total:,}</strong></span>
+          {"<span class='meta-tag'>Avg Response: <strong>" + str(avg_latency) + " ms</strong></span>" if has_timing else ""}
         </div>
       </div>
     </header>

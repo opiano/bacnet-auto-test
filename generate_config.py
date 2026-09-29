@@ -83,6 +83,11 @@ TYPE_INT_TO_NAME: dict[int, str] = {
     60: "staging",
     61: "audit-log",
     62: "audit-reporter",
+    # Custom / Proprietary object types
+    223: "tot",
+    226: "egc",
+    227: "cgc",
+    246: "fbd",
 }
 
 # Supported profiles in property_read.py
@@ -107,7 +112,296 @@ PROFILE_MAP: dict[str, str] = {
     "calendar": "calendar",
     "schedule": "schedule",
     "trend-log": "trend_log",
+    # Custom / Proprietary object profiles
+    "tot": "tot",
+    "egc": "egc",
+    "cgc": "cgc",
+    "fbd": "fbd",
 }
+
+# Default Custom / Proprietary Object Types
+CUSTOM_OBJECT_TYPES: dict[int, str] = {
+    223: "tot",
+    226: "egc",
+    227: "cgc",
+    246: "fbd",
+}
+
+CUSTOM_NAME_TO_TYPE: dict[str, int] = {
+    "tot": 223,
+    "egc": 226,
+    "cgc": 227,
+    "fbd": 246,
+}
+
+CUSTOM_OBJECT_PV_TYPES: dict[str, str] = {
+    "tot": "real",
+    "egc": "any",
+    "cgc": "boolean",
+    "fbd": "boolean",
+}
+
+
+try:
+    from bacpypes3.primitivedata import Atomic, TagClass
+    _DynamicBase = Atomic
+except Exception:
+    _DynamicBase = object
+    TagClass = None
+
+
+def resolve_bacnet_type(type_spec: Any) -> Any:
+    """Resolve a BACnet property datatype for custom objects."""
+    if isinstance(type_spec, type):
+        return type_spec
+    if not isinstance(type_spec, str):
+        return DynamicValue
+    s = type_spec.strip().lower().replace("_", "-")
+    try:
+        from bacpypes3.primitivedata import (
+            Real,
+            Boolean,
+            Integer,
+            Unsigned,
+            CharacterString,
+            OctetString,
+            BitString,
+            Date,
+            Time,
+            ObjectIdentifier,
+            ObjectType,
+        )
+        from bacpypes3.constructeddata import AnyAtomic, Any
+
+        type_map = {
+            "real": Real,
+            "float": Real,
+            "double": Real,
+            "boolean": Boolean,
+            "bool": Boolean,
+            "any": AnyAtomic,
+            "anyatomic": AnyAtomic,
+            "any-atomic": AnyAtomic,
+            "integer": Integer,
+            "int": Integer,
+            "unsigned": Unsigned,
+            "uint": Unsigned,
+            "character-string": CharacterString,
+            "string": CharacterString,
+            "str": CharacterString,
+            "octet-string": OctetString,
+            "bit-string": BitString,
+            "date": Date,
+            "time": Time,
+            "object-identifier": ObjectIdentifier,
+            "object-type": ObjectType,
+        }
+        if s in type_map:
+            return type_map[s]
+    except Exception:
+        pass
+    return DynamicValue
+
+
+class DynamicValue(_DynamicBase):
+    """Dynamic decoder for proprietary / custom object properties.
+
+    Safely decodes application or context tags without consuming
+    an outer enclosing context tag (such as ClosingTag 3 in ReadPropertyACK).
+    """
+
+    @classmethod
+    def decode(cls, tag_list: Any) -> Any:
+        if not tag_list:
+            return None
+
+        # Check if first tag is already a closing tag (end of sequence)
+        tag = tag_list.peek() if hasattr(tag_list, "peek") else None
+        if tag is not None and getattr(tag, "tag_class", None) == getattr(TagClass, "closing", 5):
+            return None
+
+        # If it's a single application tag, consume only that tag and return
+        if tag is not None and getattr(tag, "tag_class", None) == getattr(TagClass, "application", 0):
+            tag = tag_list.pop()
+            if hasattr(tag, "app_to_object"):
+                return tag.app_to_object()
+            if hasattr(tag, "get_value"):
+                return tag.get_value()
+            return tag
+
+        # Decode tags until next tag is a closing tag or tag_list is empty
+        results = []
+        while tag_list:
+            next_tag = tag_list.peek() if hasattr(tag_list, "peek") else None
+            if next_tag is not None and getattr(next_tag, "tag_class", None) == getattr(TagClass, "closing", 5):
+                break
+            t = tag_list.pop()
+            if getattr(t, "tag_class", None) == 0 and hasattr(t, "app_to_object"):
+                results.append(t.app_to_object())
+            elif hasattr(t, "get_value"):
+                results.append(t.get_value())
+            else:
+                results.append(t)
+        return results if len(results) != 1 else (results[0] if results else None)
+
+
+class BaseCustomObjectClass:
+    """Base BACpypes3 object class stub for vendor proprietary objects."""
+    _object_type_name: str = ""
+    _pv_type: Any = None
+
+    @classmethod
+    def get_property_type(cls, prop: Any) -> Any:
+        prop_str = str(prop).lower().replace("_", "-")
+        norm = prop_str.replace("-", "")
+
+        # Standard object properties
+        if norm in ("objectidentifier", "75"):
+            try:
+                from bacpypes3.primitivedata import ObjectIdentifier
+                return ObjectIdentifier
+            except Exception:
+                pass
+        if norm in ("objectname", "77", "description", "28"):
+            try:
+                from bacpypes3.primitivedata import CharacterString
+                return CharacterString
+            except Exception:
+                pass
+        if norm in ("objecttype", "79"):
+            try:
+                from bacpypes3.primitivedata import ObjectType
+                return ObjectType
+            except Exception:
+                pass
+        if norm in ("propertylist", "371"):
+            try:
+                from bacpypes3.constructeddata import ArrayOf
+                from bacpypes3.basetypes import PropertyIdentifier
+                return ArrayOf(PropertyIdentifier)
+            except Exception:
+                pass
+
+        if prop == 85 or prop == "85" or norm in ("presentvalue", "85"):
+            if cls._pv_type is not None:
+                return cls._pv_type
+
+        # For any other property, use safe dynamic decoder
+        return DynamicValue
+
+
+# Backward compatibility alias
+CustomObjectClass = BaseCustomObjectClass
+
+CUSTOM_OBJECT_CLASSES: dict[int, type] = {}
+
+
+def make_custom_object_class(obj_type_name: str, pv_type: Any = None) -> type:
+    clean_name = str(obj_type_name).strip().lower()
+
+    class _CustomObj(BaseCustomObjectClass):
+        _object_type_name = clean_name
+        _pv_type = pv_type
+
+    _CustomObj.__name__ = f"CustomObject_{clean_name.replace('-', '_')}"
+    _CustomObj.__qualname__ = _CustomObj.__name__
+    return _CustomObj
+
+
+def register_custom_object_types(
+    types: dict[int, str] | None = None,
+    pv_types: dict[str, Any] | None = None,
+) -> None:
+    """Register proprietary object types into BACpypes3 ObjectType and VendorInfo."""
+    t_map = types or CUSTOM_OBJECT_TYPES
+    pv_map = pv_types or CUSTOM_OBJECT_PV_TYPES
+    try:
+        from bacpypes3.primitivedata import ObjectType
+        for code, name in t_map.items():
+            clean_name = str(name).strip()
+            setattr(ObjectType, clean_name, code)
+            setattr(ObjectType, clean_name.replace("-", "_"), code)
+            if hasattr(ObjectType, "_enum_map"):
+                ObjectType._enum_map[clean_name] = code
+                ObjectType._enum_map[clean_name.lower()] = code
+                ObjectType._enum_map[clean_name.upper()] = code
+                ObjectType._enum_map[clean_name.replace("-", "_")] = code
+                ObjectType._enum_map[clean_name.replace("_", "-")] = code
+            if hasattr(ObjectType, "_attr_map"):
+                ObjectType._attr_map[code] = clean_name
+            if hasattr(ObjectType, "_asn1_map"):
+                ObjectType._asn1_map[code] = clean_name
+            CUSTOM_NAME_TO_TYPE[clean_name.lower()] = code
+            CUSTOM_NAME_TO_TYPE[clean_name.replace("-", "_").lower()] = code
+            CUSTOM_NAME_TO_TYPE[clean_name.replace("_", "-").lower()] = code
+    except Exception:
+        pass
+
+    try:
+        from bacpypes3.vendor import VendorInfo, get_vendor_info, _vendor_info
+
+        for code, name in t_map.items():
+            int_code = int(code)
+            clean_name = str(name).strip().lower()
+            pv_spec = pv_map.get(clean_name)
+            pv_type = resolve_bacnet_type(pv_spec) if pv_spec else DynamicValue
+            cls = make_custom_object_class(clean_name, pv_type)
+            CUSTOM_OBJECT_CLASSES[int_code] = cls
+
+        ashrae_info = get_vendor_info(0)
+        for code, cls in CUSTOM_OBJECT_CLASSES.items():
+            ashrae_info.register_object_class(code, cls)
+
+        for v_info in _vendor_info.values():
+            for code, cls in CUSTOM_OBJECT_CLASSES.items():
+                v_info.register_object_class(code, cls)
+
+        if not getattr(VendorInfo, "_custom_hooked", False):
+            _orig_get_object_class = VendorInfo.get_object_class
+
+            def custom_get_object_class(self, object_type: Any) -> Any:
+                res = _orig_get_object_class(self, object_type)
+                if res is not None:
+                    return res
+                try:
+                    int_code = int(object_type)
+                    if int_code in CUSTOM_OBJECT_CLASSES:
+                        return CUSTOM_OBJECT_CLASSES[int_code]
+                except (ValueError, TypeError):
+                    pass
+                return None
+
+            VendorInfo.get_object_class = custom_get_object_class
+            VendorInfo._custom_hooked = True
+    except Exception:
+        pass
+
+
+def resolve_object_id(obj_id: str | tuple | Any) -> Any:
+    """Resolve an object identifier to a BACpypes3 ObjectIdentifier instance."""
+    try:
+        from bacpypes3.primitivedata import ObjectIdentifier
+
+        if isinstance(obj_id, ObjectIdentifier):
+            return obj_id
+
+        if isinstance(obj_id, tuple):
+            return ObjectIdentifier(obj_id)
+
+        if isinstance(obj_id, str):
+            sep = "," if "," in obj_id else (":" if ":" in obj_id else None)
+            if sep:
+                t_str, inst_str = obj_id.split(sep, 1)
+                t_clean = t_str.strip().lower()
+                inst = int(inst_str.strip())
+                if t_clean in CUSTOM_NAME_TO_TYPE:
+                    return ObjectIdentifier((CUSTOM_NAME_TO_TYPE[t_clean], inst))
+                if t_clean.isdigit():
+                    return ObjectIdentifier((int(t_clean), inst))
+            return ObjectIdentifier(obj_id)
+    except Exception:
+        pass
+    return obj_id
 
 
 def camel_to_kebab(name: str) -> str:
@@ -191,6 +485,8 @@ def normalize_object_identifier(item: Any) -> tuple[str, int, str]:
 
     if isinstance(raw_type, int) and raw_type in TYPE_INT_TO_NAME:
         kebab_type = TYPE_INT_TO_NAME[raw_type]
+    elif str(raw_type).isdigit() and int(str(raw_type)) in TYPE_INT_TO_NAME:
+        kebab_type = TYPE_INT_TO_NAME[int(str(raw_type))]
     else:
         type_str = str(raw_type)
         if "." in type_str:
@@ -359,8 +655,9 @@ async def read_object_list(app: Application, target_address: str, device_instanc
 async def fetch_object_name(app: Application, target_address: str, object_id: str, timeout: float = 2.0) -> str | None:
     """Attempt to read object-name for an object."""
     try:
+        target_obj_id = resolve_object_id(object_id)
         val = await asyncio.wait_for(
-            app.read_property(target_address, object_id, "object-name"),
+            app.read_property(target_address, target_obj_id, "object-name"),
             timeout=timeout,
         )
         if hasattr(val, "get_value"):
@@ -462,6 +759,18 @@ async def run(args: argparse.Namespace) -> int:
 
     print(f"[*] Target Device: {target_address}")
     print(f"[*] Local Address: {local_address} (port: {local_port}, instance: {args.local_instance})")
+
+    # Register proprietary custom object types
+    register_custom_object_types()
+    if getattr(args, "custom_type", None):
+        for ct in args.custom_type:
+            parts = ct.split(":")
+            code = int(parts[0].strip())
+            name = parts[1].strip() if len(parts) > 1 else f"custom-{code}"
+            prof = parts[2].strip() if len(parts) > 2 else name
+            TYPE_INT_TO_NAME[code] = name
+            PROFILE_MAP[name] = prof
+            register_custom_object_types({code: name})
 
     # Start BACnet application
     app_address = f"{local_address}:{local_port}" if local_port != 47808 else local_address
@@ -631,6 +940,12 @@ def main() -> int:
         "--first-per-type",
         action="store_true",
         help="Include only the first object of each profile type (for quick sampling)",
+    )
+    parser.add_argument(
+        "--custom-type",
+        action="append",
+        metavar="CODE:NAME[:PROFILE]",
+        help="Register custom object type (e.g. --custom-type 250:custom_xyz:custom)",
     )
     parser.add_argument(
         "--skip-names",
